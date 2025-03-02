@@ -3,8 +3,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"time"
 
-	"github.com/jasonKoogler/comma/internal/audit"
+	"github.com/jasonKoogler/comma/internal/team"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -25,32 +27,41 @@ var (
 		Use:   "team",
 		Short: "Manage team settings",
 	}
+
+	teamCreateCmd = &cobra.Command{
+		Use:   "create",
+		Short: "Create a new team configuration",
+		RunE:  runTeamCreate,
+	}
+
+	teamImportCmd = &cobra.Command{
+		Use:   "import",
+		Short: "Import team configuration from file",
+		RunE:  runTeamImport,
+	}
 )
 
 func init() {
-	rootCmd.AddCommand(enterpriseCmd)
 	enterpriseCmd.AddCommand(auditCmd)
 	enterpriseCmd.AddCommand(teamCmd)
+
+	teamCmd.AddCommand(teamCreateCmd)
+	teamCmd.AddCommand(teamImportCmd)
 
 	// Audit command flags
 	auditCmd.Flags().Int("days", 30, "Number of days to include in report")
 	auditCmd.Flags().Bool("export", false, "Export report to CSV")
 
-	// Team command and subcommands setup would go here
+	// Team command flags
+	teamCreateCmd.Flags().String("name", "", "Team name")
+	teamCreateCmd.Flags().String("description", "", "Team description")
 }
 
 func runAudit(cmd *cobra.Command, args []string) error {
 	days, _ := cmd.Flags().GetInt("days")
 
-	// Initialize audit logger
-	configDir := viper.GetString("config_dir")
-	logger, err := audit.NewLogger(configDir)
-	if err != nil {
-		return fmt.Errorf("failed to initialize audit logger: %w", err)
-	}
-
 	// Generate usage report
-	report, err := logger.GetUsageReport(days)
+	report, err := appContext.AuditLogger.GetUsageReport(days)
 	if err != nil {
 		return fmt.Errorf("failed to generate usage report: %w", err)
 	}
@@ -66,5 +77,73 @@ func runAudit(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  %s: %d requests\n", provider, count)
 	}
 
+	return nil
+}
+
+func runTeamCreate(cmd *cobra.Command, args []string) error {
+	name, _ := cmd.Flags().GetString("name")
+	description, _ := cmd.Flags().GetString("description")
+
+	if name == "" {
+		return fmt.Errorf("team name is required")
+	}
+
+	// Create team configuration
+	config := team.TeamConfig{
+		Name:        name,
+		Description: description,
+		Templates:   make(map[string]team.Template),
+		ConventionChecks: []team.ConventionCheck{
+			{
+				Name:        "Conventional Format",
+				Description: "Follows conventional commits format",
+				Regex:       `^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_-]+\))?:\s.+`,
+				Required:    true,
+				ErrorMsg:    "Commit message must follow conventional format: type(scope): message",
+			},
+		},
+		DefaultTemplate:  "default",
+		AllowedProviders: []string{"openai", "anthropic"},
+		RequiresApproval: false,
+		AdminUsers:       []string{},
+	}
+
+	// Add default template
+	config.Templates["default"] = team.Template{
+		Name:        "Default",
+		Description: "Default commit message template",
+		Content:     viper.GetString("template"),
+		Created:     time.Now().Format(time.RFC3339),
+	}
+
+	// Save team configuration
+	if err := appContext.TeamManager.SaveTeam(name, &config); err != nil {
+		return fmt.Errorf("failed to save team configuration: %w", err)
+	}
+
+	fmt.Printf("✓ Team '%s' created successfully!\n", name)
+	return nil
+}
+
+func runTeamImport(cmd *cobra.Command, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("filename is required")
+	}
+
+	filename := args[0]
+
+	// Read file
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Import team configuration
+	name, err := appContext.TeamManager.ImportFromJSON(data)
+	if err != nil {
+		return fmt.Errorf("failed to import team configuration: %w", err)
+	}
+
+	fmt.Printf("✓ Team '%s' imported successfully!\n", name)
 	return nil
 }

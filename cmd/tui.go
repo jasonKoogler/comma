@@ -11,7 +11,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
+	"github.com/jasonKoogler/comma/internal/analysis"
+	"github.com/jasonKoogler/comma/internal/diff"
 	"github.com/jasonKoogler/comma/internal/git"
 	"github.com/jasonKoogler/comma/internal/llm"
 )
@@ -37,7 +40,7 @@ func (i FileItem) Title() string       { return i.path }
 func (i FileItem) Description() string { return i.status }
 func (i FileItem) FilterValue() string { return i.path }
 
-// Model contains the state of the TUI
+// Update the Model struct to include the renderer:
 type Model struct {
 	files      list.Model
 	changes    viewport.Model
@@ -49,6 +52,7 @@ type Model struct {
 	height     int
 	activeView int
 	repo       *git.Repository
+	renderer   *diff.CodeRenderer
 	err        error
 }
 
@@ -202,6 +206,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update changes view when file selection changes
 		if item, ok := m.files.SelectedItem().(FileItem); ok {
 			content, _ := m.repo.GetFileChanges(item.path)
+
+			// Use syntax highlighting if renderer is available
+			if m.renderer != nil {
+				content = m.renderer.RenderDiff(content, item.path)
+			}
+
 			m.changes.SetContent(content)
 		}
 
@@ -226,13 +236,41 @@ func generateSuggestion(repo *git.Repository) tea.Cmd {
 
 		context, _ := repo.GetRepositoryContext()
 
-		client, err := llm.NewClient()
+		// Get template from config
+		tmplText := viper.GetString("template")
+
+		// Get client with credentials
+		client, err := llm.NewClient(appContext.CredentialMgr)
 		if err != nil {
 			return errMsg{err}
 		}
 		defer client.Close()
 
-		prompt := llm.PreparePrompt("", changes, false, context)
+		// Optional: Detect commit type if smart detection is enabled
+		var commitType, commitScope string
+		if viper.GetBool("analysis.enable_smart_detection") {
+			// Get file list for analysis
+			changedFiles, _ := repo.GetChangedFiles()
+			filePaths := make([]string, len(changedFiles))
+			for i, cf := range changedFiles {
+				filePaths[i] = cf.Path
+			}
+
+			// Create classifier with repo context
+			classifier := analysis.NewClassifier(context.CommitHistory)
+
+			// Analyze changes
+			suggestions := classifier.ClassifyChanges(changes, filePaths)
+
+			if len(suggestions) > 0 && suggestions[0].Confidence > 0.6 {
+				commitType = suggestions[0].Type
+				commitScope = suggestions[0].Scope
+			}
+		}
+
+		// Prepare prompt with proper template and detected type/scope
+		prompt := llm.PreparePrompt(tmplText, changes, false, context, commitType, commitScope)
+
 		message, err := client.GenerateCommitMessage(prompt, 500)
 		if err != nil {
 			return errMsg{err}
@@ -305,6 +343,12 @@ func statusLine(m Model) string {
 
 func runTUI(cmd *cobra.Command, args []string) error {
 	model := initialModel()
+
+	// Apply syntax highlighting if enabled
+	if viper.GetBool("ui.syntax_highlight") {
+		model.renderer = appContext.Renderer
+	}
+
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()
 	return err

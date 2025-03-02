@@ -1,12 +1,12 @@
+// cmd/root.go
 package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/mitchellh/go-homedir"
+	"github.com/jasonKoogler/comma/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -23,10 +23,12 @@ var (
 It integrates with various LLM providers and is highly customizable.`,
 		SilenceUsage: true,
 	}
+	appContext *config.AppContext
 )
 
 // Execute executes the root command
-func Execute() error {
+func Execute(ctx *config.AppContext) error {
+	appContext = ctx
 	return rootCmd.Execute()
 }
 
@@ -49,6 +51,9 @@ func init() {
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(tuiCmd)
+	rootCmd.AddCommand(analyzeCmd)
+	rootCmd.AddCommand(enterpriseCmd)
 }
 
 // initConfig reads in config file and ENV variables if set
@@ -57,29 +62,18 @@ func initConfig() {
 		// Use config file from the flag
 		viper.SetConfigFile(cfgFile)
 	} else {
-		// Find home directory
-		home, err := homedir.Dir()
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		// Search config in home directory with name ".comma" (without extension)
-		configDir := filepath.Join(home, ".comma")
-		if err := os.MkdirAll(configDir, 0755); err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		configPath := filepath.Join(configDir, "config.yaml")
-		viper.SetConfigFile(configPath)
+		// Use config from app context
+		viper.SetConfigFile(filepath.Join(appContext.ConfigDir, "config.yaml"))
 	}
+
+	// Store config directory in viper
+	viper.Set("config_dir", appContext.ConfigDir)
 
 	// Set defaults
 	setDefaults()
 
 	// Read in environment variables that match
-	viper.SetEnvPrefix("COMMITSAGE")
+	viper.SetEnvPrefix("COMMA")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 
@@ -97,6 +91,7 @@ func initConfig() {
 	}
 }
 
+// setDefaults sets the default configuration values
 func setDefaults() {
 	// LLM settings
 	viper.SetDefault("llm.provider", "openai")
@@ -104,6 +99,27 @@ func setDefaults() {
 	viper.SetDefault("llm.max_tokens", 500)
 	viper.SetDefault("llm.temperature", 0.7)
 	viper.SetDefault("llm.model", "gpt-4")
+	viper.SetDefault("llm.use_local_fallback", false)
+
+	// Analysis settings
+	viper.SetDefault("analysis.enable_smart_detection", true)
+	viper.SetDefault("analysis.suggest_scopes", true)
+
+	// Security settings
+	viper.SetDefault("security.scan_for_sensitive_data", true)
+	viper.SetDefault("security.enable_audit_logging", true)
+
+	// Cache settings
+	viper.SetDefault("cache.enabled", true)
+	viper.SetDefault("cache.max_age_hours", 24)
+
+	// Team settings
+	viper.SetDefault("team.enabled", false)
+	viper.SetDefault("team.name", "")
+
+	// UI settings
+	viper.SetDefault("ui.syntax_highlight", true)
+	viper.SetDefault("ui.theme", "monokai")
 
 	// Template and behavior
 	viper.SetDefault("template", `

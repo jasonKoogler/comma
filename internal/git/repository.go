@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Repository represents a git repository
@@ -352,4 +353,59 @@ func parseStatusCode(code string) string {
 		}
 		return code
 	}
+}
+
+// GetCommitHistory gets commit history since a specific date
+type Commit struct {
+	Hash    string
+	Author  string
+	Date    time.Time
+	Message string
+}
+
+func (r *Repository) GetCommitHistory(since time.Time) ([]Commit, error) {
+	// Format the date for git command
+	sinceStr := since.Format("2006-01-02")
+
+	// Get commits
+	cmd := exec.Command("git", "-C", r.path, "log", "--since="+sinceStr, "--pretty=format:%H|%an|%ad|%s", "--date=iso")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to get commit history: %w", err)
+	}
+
+	if out.Len() == 0 {
+		return []Commit{}, nil
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	commits := make([]Commit, 0, len(lines))
+
+	for _, line := range lines {
+		parts := strings.SplitN(line, "|", 4)
+		if len(parts) < 4 {
+			continue
+		}
+
+		// Parse date
+		date, err := time.Parse("2006-01-02 15:04:05 -0700", parts[2])
+		if err != nil {
+			// Try alternative format
+			date, err = time.Parse("2006-01-02", parts[2])
+			if err != nil {
+				// Just use current time if parsing fails
+				date = time.Now()
+			}
+		}
+
+		commits = append(commits, Commit{
+			Hash:    parts[0],
+			Author:  parts[1],
+			Date:    date,
+			Message: parts[3],
+		})
+	}
+
+	return commits, nil
 }
