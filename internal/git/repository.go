@@ -3,6 +3,7 @@ package git
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -233,4 +234,122 @@ func hasFile(repoPath, fileName string) bool {
 		return false
 	}
 	return strings.TrimSpace(out.String()) != ""
+}
+
+// FileChange represents a changed file in the repository
+type FileChange struct {
+	Path   string // File path
+	Status string // Status code (A: added, M: modified, D: deleted, etc.)
+}
+
+// GetChangedFiles returns a list of files that have been changed
+func (r *Repository) GetChangedFiles() ([]FileChange, error) {
+	// Get list of changed files with status
+	cmd := exec.Command("git", "-C", r.path, "status", "--porcelain")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to get changed files: %w", err)
+	}
+
+	if out.Len() == 0 {
+		return []FileChange{}, nil
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	changes := make([]FileChange, 0, len(lines))
+
+	for _, line := range lines {
+		if len(line) < 3 {
+			continue
+		}
+
+		statusCode := strings.TrimSpace(line[:2])
+		filePath := strings.TrimSpace(line[3:])
+
+		changes = append(changes, FileChange{
+			Path:   filePath,
+			Status: parseStatusCode(statusCode),
+		})
+	}
+
+	return changes, nil
+}
+
+// GetFileChanges returns the diff for a specific file
+func (r *Repository) GetFileChanges(filePath string) (string, error) {
+	// Check if file exists in repo
+	cmd := exec.Command("git", "-C", r.path, "ls-files", "--error-unmatch", filePath)
+	if err := cmd.Run(); err != nil {
+		// Check if it's a new untracked file
+		cmd = exec.Command("git", "-C", r.path, "ls-files", "--others", "--exclude-standard", filePath)
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		if err := cmd.Run(); err != nil || out.Len() == 0 {
+			return "", fmt.Errorf("file not found in repository: %w", err)
+		}
+
+		// For new files, try to show their content
+		content, err := os.ReadFile(filepath.Join(r.path, filePath))
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("NEW FILE: %s\n\n%s", filePath, string(content)), nil
+	}
+
+	// Get diff for the file
+	cmd = exec.Command("git", "-C", r.path, "diff", "HEAD", "--", filePath)
+	var diffOut bytes.Buffer
+	cmd.Stdout = &diffOut
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to get file diff: %w", err)
+	}
+
+	// If no changes in diff (might be staged only)
+	if diffOut.Len() == 0 {
+		cmd = exec.Command("git", "-C", r.path, "diff", "--cached", "--", filePath)
+		cmd.Stdout = &diffOut
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("failed to get staged file diff: %w", err)
+		}
+	}
+
+	if diffOut.Len() == 0 {
+		return fmt.Sprintf("No changes detected for file: %s", filePath), nil
+	}
+
+	return diffOut.String(), nil
+}
+
+// parseStatusCode converts git status codes to human-readable status
+func parseStatusCode(code string) string {
+	switch code {
+	case "M":
+		return "Modified"
+	case "A":
+		return "Added"
+	case "D":
+		return "Deleted"
+	case "R":
+		return "Renamed"
+	case "C":
+		return "Copied"
+	case "U":
+		return "Updated but unmerged"
+	case "??":
+		return "Untracked"
+	case "!!":
+		return "Ignored"
+	default:
+		if strings.Contains(code, "M") {
+			return "Modified"
+		}
+		if strings.Contains(code, "A") {
+			return "Added"
+		}
+		if strings.Contains(code, "D") {
+			return "Deleted"
+		}
+		return code
+	}
 }
