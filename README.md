@@ -18,6 +18,10 @@ Comma is a robust Golang CLI tool that uses AI to analyze your git changes and g
 - 🔄 **Git Hook Integration**: Install as a prepare-commit-msg hook for automated workflow
 - ⚙️ **Rich Configuration**: Extensive customization via config file or command-line flags
 - 🌐 **Environment Awareness**: Auto-detects project type and latest commit history
+- 🔒 **Security Scanning**: Detects sensitive data in your changes to prevent credential leaks
+- 📊 **Repository Analysis**: Get insights into your commit patterns and conventions
+- 💼 **Team Settings**: Share templates and enforce commit conventions across your team
+- 🎨 **Terminal UIs**: Interactive interfaces for browsing changes, editing commit messages, and configuring the application
 
 ## Installation
 
@@ -31,7 +35,7 @@ Comma is a robust Golang CLI tool that uses AI to analyze your git changes and g
 
 ```bash
 # Clone the repository
-git clone https://github.com/jasonKoogler/comma.git
+git clone https://github.com/username/comma.git
 cd comma
 
 # Build and install
@@ -42,7 +46,7 @@ mv comma /usr/local/bin/
 ### Go Install
 
 ```bash
-go install github.com/jasonKoogler/comma@latest
+go install github.com/username/comma@latest
 ```
 
 ## Quick Start
@@ -113,14 +117,39 @@ $ comma config set --provider=anthropic --model=claude-3-opus-20240229 --tempera
 ✓ Configuration updated successfully!
 ```
 
-### Install git hook
+### Use the interactive terminal UIs
 
 ```bash
-$ comma install-hook
-✓ Hook installed successfully!
+# Interactive commit message UI
+$ comma tui
+
+# Interactive configuration UI
+$ comma setup
 ```
 
-Now Comma will automatically generate commit messages when you run `git commit`.
+### Analyze repository commit patterns
+
+```bash
+$ comma analyze
+Analyzing repository commit patterns...
+
+Repository Statistics:
+---------------------
+Total commits: 283
+Contributors: 7
+Conventional commits: 87.5%
+Average message length: 68.1 chars
+
+Commit Types:
+  feat: 42 (14.8%)
+  fix: 78 (27.6%)
+  docs: 15 (5.3%)
+  refactor: 28 (9.9%)
+  test: 14 (4.9%)
+
+Suggestions:
+- Add scopes to your commits for better organization
+```
 
 ## Command Reference
 
@@ -130,6 +159,10 @@ Now Comma will automatically generate commit messages when you run `git commit`.
 | `comma config view`  | View current configuration                      |
 | `comma config set`   | Update configuration values                     |
 | `comma install-hook` | Install Comma as a prepare-commit-msg hook      |
+| `comma tui`          | Launch interactive terminal UI                  |
+| `comma analyze`      | Analyze repository commit patterns              |
+| `comma setup`        | Interactive configuration UI                    |
+| `comma enterprise`   | Enterprise management features                  |
 | `comma version`      | Show version information                        |
 
 ### Generate Command Flags
@@ -144,12 +177,26 @@ Now Comma will automatically generate commit messages when you run `git commit`.
 | `--edit-prompt` | Edit the prompt before sending to LLM     | false              |
 | `--staged`      | Only consider staged changes              | true               |
 | `--verbose`     | Enable verbose output                     | false              |
+| `--skip-scan`   | Skip security scanning                    | false              |
+| `--no-cache`    | Bypass commit cache                       | false              |
 
 ## Configuration
 
 Comma uses a configuration file located at `~/.comma/config.yaml`. You can also specify a different config file using the `--config` flag.
 
-### Sample Configuration
+### Interactive Configuration
+
+You can configure Comma interactively using the setup command, which provides a user-friendly terminal UI:
+
+```bash
+$ comma setup
+```
+
+This opens an interactive configuration interface where you can navigate through different settings categories, modify values, and save your configuration without having to edit YAML files directly.
+
+![Config TUI Screenshot](https://via.placeholder.com/600x400?text=Config+TUI+Screenshot)
+
+### Sample Configuration File
 
 ```yaml
 llm:
@@ -159,6 +206,7 @@ llm:
   max_tokens: 500
   temperature: 0.7
   model: gpt-4
+  use_local_fallback: true
 template: |
   Generate a concise and meaningful git commit message for the changes.
   Follow the conventional commit format: <type>(<scope>): <subject>
@@ -174,6 +222,18 @@ template: |
   Changes: 
   {{ .Changes }}
 include_diff: false
+analysis:
+  enable_smart_detection: true
+  suggest_scopes: true
+security:
+  scan_for_sensitive_data: true
+  enable_audit_logging: true
+cache:
+  enabled: true
+  max_age_hours: 24
+ui:
+  syntax_highlight: true
+  theme: monokai
 ```
 
 ### Environment Variables
@@ -192,137 +252,58 @@ Additionally, Comma will look for provider-specific API keys:
 - `OPENAI_API_KEY` (when using OpenAI)
 - `ANTHROPIC_API_KEY` (when using Anthropic)
 
-## LLM Providers
+## Advanced Features
 
-### OpenAI
+### Secure Credential Management
 
-OpenAI's GPT models (GPT-4 recommended) provide excellent commit message generation. To use:
+Comma stores API keys securely using your system's credential storage or encrypted files as a fallback. This ensures that your API keys are never stored in plaintext.
 
-```bash
-comma config set --provider=openai --model=gpt-4
-```
+### Sensitive Data Detection
 
-Ensure you have set either `COMMA_LLM_API_KEY` or `OPENAI_API_KEY` environment variable.
-
-### Anthropic Claude
-
-Anthropic's Claude models excel at understanding context and generating natural-sounding commit messages:
+Before sending changes to an LLM provider, Comma scans for sensitive information such as API keys, passwords, and connection strings to prevent accidental disclosure of secrets.
 
 ```bash
-comma config set --provider=anthropic --model=claude-3-opus-20240229
+$ git add config.json
+$ comma generate
+
+⚠️  Security Warning: Sensitive data detected in changes!
+The following issues were found:
+1. AWS Key (HIGH)
+   Line: AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+   Suggestion: Store AWS credentials using environment variables or AWS credential providers
+
+Do you want to continue with these issues? (y/n):
 ```
 
-Ensure you have set either `COMMA_LLM_API_KEY` or `ANTHROPIC_API_KEY` environment variable.
+### Smart Commit Type Detection
 
-### Local LLMs (Ollama)
+Comma analyzes your changes to automatically detect the most appropriate commit type and scope based on file patterns, content changes, and repository context.
 
-For privacy or offline usage, Comma supports local LLMs through Ollama:
+### Team Templates and Conventions
+
+Enable team settings to share templates and enforce commit message conventions across your team:
 
 ```bash
-# Start Ollama locally first
-ollama run llama3
+# Create a team configuration
+$ comma enterprise team create --name engineering --description "Engineering Team"
 
-# Configure Comma to use local LLM
-comma config set --provider=local --model=llama3 --endpoint=http://localhost:11434/api/generate
+# Import existing team configuration
+$ comma enterprise team import team-config.json
+
+# Use team settings for commit generation
+$ comma generate --team
 ```
 
-## Template Variables
+### Local LLM Support
 
-You can customize the prompt template using variables:
-
-- `{{ .Changes }}` - The git changes (files and diff)
-- `{{ .Context.RepoName }}` - The repository name
-- `{{ .Context.CurrentBranch }}` - The current branch name
-- `{{ .Context.LastCommitMsg }}` - The last commit message
-- `{{ .Context.FileTypes }}` - List of file extensions in the repo
-- `{{ .Context.ProjectType }}` - Detected project type (Go, Python, etc.)
-- `{{ .Context.CommitHistory }}` - Recent commit messages
-
-## Advanced Usage
-
-### Creating Custom Templates
-
-Create a custom template focused on specific needs:
+Comma can use local LLMs like Ollama for offline usage or as a fallback when API providers are unavailable:
 
 ```bash
-comma config set --template="
-You are a commit message generator for a security-focused project.
+# Configure local LLM provider
+$ comma config set --provider=local --model=llama3
 
-Please analyze these changes and generate a commit message that:
-1. Follows conventional commit format
-2. Highlights security implications if any
-3. References related security standards when applicable
-
-Changes:
-{{ .Changes }}
-"
-```
-
-### Different Messages for Different Repositories
-
-Use git aliases for different repositories:
-
-```bash
-# In your .gitconfig
-[alias]
-  commit-feature = "!comma generate --template=/path/to/feature-template.txt"
-  commit-bugfix = "!comma generate --template=/path/to/bugfix-template.txt"
-```
-
-### Continuous Integration Integration
-
-Use Comma for automated commits in CI pipelines:
-
-```bash
-# In your CI script
-git add .
-COMMIT_MSG=$(comma generate --staged --provider=openai)
-git commit -m "$COMMIT_MSG"
-git push
-```
-
-## Troubleshooting
-
-### API Key Issues
-
-If you encounter authentication errors:
-
-```
-Error: failed to generate commit message: API error: Invalid authentication
-```
-
-Check your API key is correctly set:
-
-```bash
-# For OpenAI
-export OPENAI_API_KEY=sk-...
-
-# For Anthropic
-export ANTHROPIC_API_KEY=sk-...
-```
-
-### Rate Limiting
-
-If you encounter rate limiting:
-
-```
-Error: API returned non-200 status: 429
-```
-
-Comma has built-in retries with exponential backoff, but you may need to wait or switch providers.
-
-### Model Errors
-
-If the model returns errors:
-
-```
-Error: API error: Model overloaded
-```
-
-Try a different model or reduce complexity:
-
-```bash
-comma config set --model=gpt-3.5-turbo --max-tokens=300
+# Enable local fallback
+$ comma config set --use-local-fallback=true
 ```
 
 ## Contributing
@@ -344,6 +325,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [OpenAI](https://openai.com/) for their powerful language models
 - [Anthropic](https://www.anthropic.com/) for Claude
 - [Cobra](https://github.com/spf13/cobra) and [Viper](https://github.com/spf13/viper) libraries
+- [Bubble Tea](https://github.com/charmbracelet/bubbletea) for the terminal UI
 
 ---
 

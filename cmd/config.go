@@ -10,7 +10,7 @@ import (
 var (
 	configCmd = &cobra.Command{
 		Use:   "config",
-		Short: "Manage CommitSage configuration",
+		Short: "Manage Comms configuration",
 	}
 
 	configViewCmd = &cobra.Command{
