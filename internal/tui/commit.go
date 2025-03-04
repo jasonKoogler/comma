@@ -1,5 +1,4 @@
-// cmd/tui.go
-package cmd
+package tui
 
 import (
 	"fmt"
@@ -10,26 +9,13 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-
 	"github.com/jasonKoogler/comma/internal/analysis"
+	"github.com/jasonKoogler/comma/internal/config"
 	"github.com/jasonKoogler/comma/internal/diff"
 	"github.com/jasonKoogler/comma/internal/git"
 	"github.com/jasonKoogler/comma/internal/llm"
-	"github.com/jasonKoogler/comma/internal/tui"
+	"github.com/spf13/viper"
 )
-
-var tuiCmd = &cobra.Command{
-	Use:     "tui",
-	Aliases: []string{"t"},
-	Short:   "Interactive terminal UI for Comma",
-	RunE:    runTUI,
-}
-
-func init() {
-	rootCmd.AddCommand(tuiCmd)
-}
 
 // FileItem represents a changed file in the list
 type FileItem struct {
@@ -41,8 +27,8 @@ func (i FileItem) Title() string       { return i.path }
 func (i FileItem) Description() string { return i.status }
 func (i FileItem) FilterValue() string { return i.path }
 
-// Update the Model struct to include the renderer:
-type Model struct {
+// CommitModel represents the TUI state for commit message generation
+type CommitModel struct {
 	files      list.Model
 	changes    viewport.Model
 	message    textinput.Model
@@ -54,10 +40,13 @@ type Model struct {
 	activeView int
 	repo       *git.Repository
 	renderer   *diff.CodeRenderer
+	ctx        *config.AppContext
 	err        error
+	success    bool
 }
 
-func initialModel() Model {
+// NewCommitModel initializes a new commit TUI model
+func NewCommitModel(ctx *config.AppContext) CommitModel {
 	// Initialize file list
 	fileList := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
 	fileList.Title = "Changed Files"
@@ -75,17 +64,19 @@ func initialModel() Model {
 	msgInput.CharLimit = 100
 	msgInput.Width = 80
 
-	return Model{
+	return CommitModel{
 		files:      fileList,
 		changes:    changesView,
 		message:    msgInput,
 		activeView: 0,
 		generating: false,
 		ready:      false,
+		ctx:        ctx,
+		renderer:   ctx.Renderer,
 	}
 }
 
-func (m Model) Init() tea.Cmd {
+func (m CommitModel) Init() tea.Cmd {
 	return tea.Batch(
 		loadFiles,
 		textinput.Blink,
@@ -132,7 +123,9 @@ type suggestionMsg struct {
 	text string
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+type successMsg struct{}
+
+func (m CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
@@ -155,7 +148,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.err = err
 					} else {
 						// Show success message and quit
-						return m, tea.Quit
+						m.success = true
+						return m, tea.Sequence(
+							func() tea.Msg { return successMsg{} },
+							tea.Quit,
+						)
 					}
 				}
 			}
@@ -183,16 +180,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(msg.items) > 0 {
 			item := msg.items[0].(FileItem)
 			content, _ := m.repo.GetFileChanges(item.path)
+
+			// Use syntax highlighting if enabled
+			if m.renderer != nil && viper.GetBool("ui.syntax_highlight") {
+				content = m.renderer.RenderDiff(content, item.path)
+			}
+
 			m.changes.SetContent(content)
 		}
 
 		// Generate a suggestion based on all changes
-		return m, generateSuggestion(m.repo)
+		return m, generateSuggestion(m.repo, m.ctx)
 
 	case suggestionMsg:
 		m.suggestion = msg.text
 		m.generating = false
 		m.message.SetValue(msg.text)
+
+	case successMsg:
+		m.success = true
 
 	case errMsg:
 		m.err = msg.err
@@ -209,7 +215,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			content, _ := m.repo.GetFileChanges(item.path)
 
 			// Use syntax highlighting if renderer is available
-			if m.renderer != nil {
+			if m.renderer != nil && viper.GetBool("ui.syntax_highlight") {
 				content = m.renderer.RenderDiff(content, item.path)
 			}
 
@@ -228,7 +234,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func generateSuggestion(repo *git.Repository) tea.Cmd {
+func generateSuggestion(repo *git.Repository, ctx *config.AppContext) tea.Cmd {
 	return func() tea.Msg {
 		changes, err := repo.GetStagedChanges()
 		if err != nil {
@@ -241,7 +247,7 @@ func generateSuggestion(repo *git.Repository) tea.Cmd {
 		tmplText := viper.GetString("template")
 
 		// Get client with credentials
-		client, err := llm.NewClient(appContext.CredentialMgr)
+		client, err := llm.NewClient(ctx.CredentialMgr)
 		if err != nil {
 			return errMsg{err}
 		}
@@ -281,13 +287,17 @@ func generateSuggestion(repo *git.Repository) tea.Cmd {
 	}
 }
 
-func (m Model) View() string {
+func (m CommitModel) View() string {
 	if !m.ready {
 		return "Initializing..."
 	}
 
 	if m.err != nil {
 		return fmt.Sprintf("Error: %v\nPress q to quit.", m.err)
+	}
+
+	if m.success {
+		return "✓ Changes committed successfully!\nPress any key to exit."
 	}
 
 	// Style depending on whether component is active
@@ -324,7 +334,7 @@ func (m Model) View() string {
 	)
 }
 
-func statusLine(m Model) string {
+func statusLine(m CommitModel) string {
 	var status string
 
 	if m.generating {
@@ -342,46 +352,10 @@ func statusLine(m Model) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(status)
 }
 
-func runTUI(cmd *cobra.Command, args []string) error {
-	return tui.RunTUI(appContext, tui.ModeMain)
-}
-
-// Add specific TUI commands for direct access to specific screens
-var commitTuiCmd = &cobra.Command{
-	Use:     "commit-tui",
-	Aliases: []string{"ct"},
-	Short:   "Interactive terminal UI for creating commits",
-	RunE:    runCommitTUI,
-}
-
-var configTuiCmd = &cobra.Command{
-	Use:     "config-tui",
-	Aliases: []string{"conf"},
-	Short:   "Interactive terminal UI for configuration",
-	RunE:    runConfigTUI,
-}
-
-var analyzeTuiCmd = &cobra.Command{
-	Use:     "analyze-tui",
-	Aliases: []string{"at"},
-	Short:   "Interactive terminal UI for repository analysis",
-	RunE:    runAnalyzeTUI,
-}
-
-func init() {
-	rootCmd.AddCommand(commitTuiCmd)
-	rootCmd.AddCommand(configTuiCmd)
-	rootCmd.AddCommand(analyzeTuiCmd)
-}
-
-func runCommitTUI(cmd *cobra.Command, args []string) error {
-	return tui.RunCommitTUI(appContext)
-}
-
-func runConfigTUI(cmd *cobra.Command, args []string) error {
-	return tui.RunConfigTUI(appContext)
-}
-
-func runAnalyzeTUI(cmd *cobra.Command, args []string) error {
-	return tui.RunAnalyzeTUI(appContext)
+// RunCommitTUI starts the commit TUI
+func RunCommitTUI(ctx *config.AppContext) error {
+	model := NewCommitModel(ctx)
+	p := tea.NewProgram(model, tea.WithAltScreen())
+	_, err := p.Run()
+	return err
 }

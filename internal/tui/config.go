@@ -1,29 +1,16 @@
-package cmd
+// internal/tui/config.go
+package tui
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/spf13/cobra"
+	"github.com/jasonKoogler/comma/internal/config"
 	"github.com/spf13/viper"
 )
-
-var configTuiCmd = &cobra.Command{
-	Use:     "setup",
-	Aliases: []string{"config-tui", "settings"},
-	Short:   "Interactive UI for configuring Comma",
-	RunE:    runConfigTui,
-}
-
-func init() {
-	rootCmd.AddCommand(configTuiCmd)
-}
 
 // Section represents a configuration section
 type Section struct {
@@ -75,50 +62,12 @@ func getSettingDescription(s Setting) string {
 	return fmt.Sprintf("%s: %s", s.description, lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Render(value))
 }
 
-// Add this type to represent a model selection UI
+// modelSelectionMsg represents a model selection message
 type modelSelectionMsg struct {
 	model string
 }
 
-// Add this function to handle model selection
-func showModelSelection(m ConfigModel) (tea.Model, tea.Cmd) {
-	// Get current provider
-	currentProvider := viper.GetString("llm.provider")
-
-	// Get models for this provider
-	var models []string
-	if modelList, ok := supportedModels[currentProvider]; ok {
-		models = modelList
-	} else {
-		// If no models defined for this provider, just return
-		return m, nil
-	}
-
-	// Create a temporary list for model selection
-	delegate := list.NewDefaultDelegate()
-	delegate.ShowDescription = false
-
-	// Convert models to list items
-	items := make([]list.Item, len(models))
-	for i, model := range models {
-		items[i] = modelItem{name: model}
-	}
-
-	// Create and configure the list
-	modelList := list.New(items, delegate, m.width-10, m.height-10)
-	modelList.Title = "Select Model for " + currentProvider
-	modelList.SetShowHelp(false)
-	modelList.SetFilteringEnabled(false)
-	modelList.SetShowStatusBar(false)
-
-	// Update the model
-	m.modelSelector = modelList
-	m.showModelSelector = true
-
-	return m, nil
-}
-
-// Add this type for model items
+// modelItem represents a model in the selection list
 type modelItem struct {
 	name string
 }
@@ -144,73 +93,72 @@ type ConfigModel struct {
 	currentSection    string // Track the current section name
 	modelSelector     list.Model
 	showModelSelector bool
+	ctx               *config.AppContext
 }
 
-// Add these constants at the top of the file, after imports
+// Constants for configuration
 const (
 	customOption = "-- Custom (Enter your own) --"
 )
 
-// Add these variables after the constants
-var (
-	// Curated list of LLM providers
-	supportedProviders = []string{
-		"openai",
-		"anthropic",
-		"google",
-		"mistral",
-		"ollama",
-		"local",
+// Curated list of LLM providers
+var supportedProviders = []string{
+	"openai",
+	"anthropic",
+	"google",
+	"mistral",
+	"ollama",
+	"local",
+	customOption,
+}
+
+// Curated list of models by provider
+var supportedModels = map[string][]string{
+	"openai": {
+		"gpt-4o",
+		"gpt-4-turbo",
+		"gpt-4",
+		"gpt-3.5-turbo",
 		customOption,
-	}
+	},
+	"anthropic": {
+		"claude-3-opus-20240229",
+		"claude-3-sonnet-20240229",
+		"claude-3-haiku-20240307",
+		"claude-2.1",
+		"claude-2.0",
+		customOption,
+	},
+	"google": {
+		"gemini-pro",
+		"gemini-1.5-pro",
+		customOption,
+	},
+	"mistral": {
+		"mistral-large-latest",
+		"mistral-medium-latest",
+		"mistral-small-latest",
+		customOption,
+	},
+	"ollama": {
+		"llama3",
+		"llama3:8b",
+		"llama3:70b",
+		"mistral",
+		"mixtral",
+		"codellama",
+		customOption,
+	},
+	"local": {
+		"llama3:8b",
+		"mistral:7b",
+		"phi3:mini",
+		customOption,
+	},
+}
 
-	// Curated list of models by provider
-	supportedModels = map[string][]string{
-		"openai": {
-			"gpt-4o",
-			"gpt-4-turbo",
-			"gpt-4",
-			"gpt-3.5-turbo",
-			customOption,
-		},
-		"anthropic": {
-			"claude-3-opus-20240229",
-			"claude-3-sonnet-20240229",
-			"claude-3-haiku-20240307",
-			"claude-2.1",
-			"claude-2.0",
-			customOption,
-		},
-		"google": {
-			"gemini-pro",
-			"gemini-1.5-pro",
-			customOption,
-		},
-		"mistral": {
-			"mistral-large-latest",
-			"mistral-medium-latest",
-			"mistral-small-latest",
-			customOption,
-		},
-		"ollama": {
-			"llama3",
-			"llama3:8b",
-			"llama3:70b",
-			"mistral",
-			"mixtral",
-			"codellama",
-			customOption,
-		},
-		"local": {
-			"llama3:8b",
-			"mistral:7b",
-			"phi3:mini",
-			customOption,
-		},
-	}
-)
-
-func initialConfigModel() ConfigModel {
+// NewConfigModel creates a new configuration TUI model
+func NewConfigModel(ctx *config.AppContext) ConfigModel {
 	// Define sections
 	sectionItems := []list.Item{
 		Section{title: "General", description: "Basic application settings"},
@@ -263,6 +211,7 @@ func initialConfigModel() ConfigModel {
 		height:            24,
 		showModelSelector: false,
 		modelSelector:     modelSelector,
+		ctx:               ctx,
 	}
 }
 
@@ -273,13 +222,54 @@ func (m ConfigModel) Init() tea.Cmd {
 	)
 }
 
-// Messages for internal state updates
+// settingsLoadedMsg is a message for when settings are loaded
 type settingsLoadedMsg struct {
 	section string
 	items   []list.Item
 }
 
-// Add this function to handle custom input for provider/model selection
+// resetSavedMsg is a message to reset the saved status
+type resetSavedMsg struct{}
+
+// showModelSelection shows the model selection UI
+func showModelSelection(m ConfigModel) (tea.Model, tea.Cmd) {
+	// Get current provider
+	currentProvider := viper.GetString("llm.provider")
+
+	// Get models for this provider
+	var models []string
+	if modelList, ok := supportedModels[currentProvider]; ok {
+		models = modelList
+	} else {
+		// If no models defined for this provider, just return
+		return m, nil
+	}
+
+	// Create a temporary list for model selection
+	delegate := list.NewDefaultDelegate()
+	delegate.ShowDescription = false
+
+	// Convert models to list items
+	items := make([]list.Item, len(models))
+	for i, model := range models {
+		items[i] = modelItem{name: model}
+	}
+
+	// Create and configure the list
+	modelList := list.New(items, delegate, m.width-10, m.height-10)
+	modelList.Title = "Select Model for " + currentProvider
+	modelList.SetShowHelp(false)
+	modelList.SetFilteringEnabled(false)
+	modelList.SetShowStatusBar(false)
+
+	// Update the model
+	m.modelSelector = modelList
+	m.showModelSelector = true
+
+	return m, nil
+}
+
+// handleCustomSelection handles custom input for provider/model selection
 func handleCustomSelection(m ConfigModel, setting Setting) (tea.Model, tea.Cmd) {
 	m.showEditor = true
 	m.editingSetting = setting
@@ -295,7 +285,7 @@ func handleCustomSelection(m ConfigModel, setting Setting) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
-// Modify the loadSettings function to use the curated lists
+// loadSettings loads settings for a specific section
 func loadSettings(section string) tea.Cmd {
 	return func() tea.Msg {
 		var items []list.Item
@@ -512,7 +502,7 @@ func loadSettings(section string) tea.Cmd {
 	}
 }
 
-// Add a helper function to check if a string is in a slice
+// contains checks if a string is in a slice
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
@@ -522,7 +512,7 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-// Add a function to mask API keys for display
+// maskAPIKey masks an API key for display
 func maskAPIKey(key string) string {
 	if key == "" {
 		return ""
@@ -576,257 +566,22 @@ func (m ConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-
-			// Update the model selector
-			newList, cmd := m.modelSelector.Update(msg)
-			m.modelSelector = newList
-			return m, cmd
-		}
-	}
-
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		// Global keys (work regardless of active panel)
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-
-		case "ctrl+s":
-			// Save all settings
-			if err := viper.WriteConfig(); err != nil {
-				m.err = err
-			} else {
-				m.saved = true
-				// Reset saved status after 3 seconds
-				cmds = append(cmds, tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
-					return resetSavedMsg{}
-				}))
-			}
-
-		case "esc", "left", "backspace":
-			if m.showEditor {
-				m.showEditor = false
-				m.editor.Blur()
-			} else if m.activePanel == 1 {
-				// Go back to sections panel
-				m.activePanel = 0
-			}
-			// Don't quit when pressing Esc - only use q or ctrl+c for quitting
-
-		case "enter":
-			if m.showEditor {
-				// Save the edited value
-				setting := m.editingSetting
-
-				switch setting.valueType {
-				case "string", "text", "select", "password":
-					// For password type, don't display the masked version
-					if setting.valueType == "password" {
-						viper.Set(setting.key, m.editor.Value())
-						setting.value = maskAPIKey(m.editor.Value())
-					} else {
-						viper.Set(setting.key, m.editor.Value())
-						setting.value = m.editor.Value()
-					}
-				case "int":
-					val, err := strconv.Atoi(m.editor.Value())
-					if err == nil {
-						viper.Set(setting.key, val)
-						setting.value = val
-					}
-				case "float":
-					val, err := strconv.ParseFloat(m.editor.Value(), 64)
-					if err == nil {
-						viper.Set(setting.key, val)
-						setting.value = val
-					}
-				}
-
-				// Update the setting in the list
-				for i, item := range m.settings.Items() {
-					if s, ok := item.(Setting); ok && s.key == setting.key {
-						s.value = setting.value
-						m.settings.SetItem(i, s)
-						break
-					}
-				}
-
-				m.showEditor = false
-
-			} else if m.activePanel == 0 {
-				// Load settings for selected section and switch to settings panel
-				if i, ok := m.sections.SelectedItem().(Section); ok {
-					m.currentSection = i.title
-					m.activePanel = 1
-					return m, loadSettings(i.title)
-				}
-
-			} else if m.activePanel == 1 {
-				// Edit the selected setting
-				if i, ok := m.settings.SelectedItem().(Setting); ok {
-					m.editingSetting = i
-
-					switch i.valueType {
-					case "bool":
-						// Toggle boolean value
-						newVal := !viper.GetBool(i.key)
-						viper.Set(i.key, newVal)
-
-						// Update the setting in the list
-						for j, item := range m.settings.Items() {
-							if s, ok := item.(Setting); ok && s.key == i.key {
-								s.value = newVal
-								m.settings.SetItem(j, s)
-								break
-							}
-						}
-
-					case "select":
-						// For select type, check if we have options
-						if len(i.options) > 0 {
-							// If the current value is customOption, show editor
-							if i.value == customOption {
-								return handleCustomSelection(m, i)
-							}
-
-							// For provider, update the model options when provider changes
-							if i.key == "llm.provider" {
-								// Cycle through available providers
-								currentIndex := -1
-								for idx, opt := range i.options {
-									if opt == i.value {
-										currentIndex = idx
-										break
-									}
-								}
-
-								// Move to next provider in the list
-								nextIndex := (currentIndex + 1) % len(i.options)
-								newProvider := i.options[nextIndex]
-
-								// Update the provider in viper and in the list
-								viper.Set(i.key, newProvider)
-
-								// Update the setting in the list
-								for j, item := range m.settings.Items() {
-									if s, ok := item.(Setting); ok && s.key == i.key {
-										s.value = newProvider
-										m.settings.SetItem(j, s)
-										break
-									}
-								}
-
-								// Reload settings to update model options based on new provider
-								return m, loadSettings("LLM Providers")
-							} else if i.key == "llm.model" {
-								// Show model selector instead of cycling
-								return showModelSelection(m)
-							} else {
-								// For other select types, show editor
-								m.showEditor = true
-								m.editor.SetValue(fmt.Sprintf("%v", i.value))
-								m.editor.Focus()
-							}
-						} else {
-							// No options, treat as string
-							m.showEditor = true
-							m.editor.SetValue(fmt.Sprintf("%v", i.value))
-							m.editor.Focus()
-						}
-
-					case "password":
-						// For password, show the editor but clear the field if it's masked
-						m.showEditor = true
-						if i.value == "" || strings.Contains(i.value.(string), "*") {
-							m.editor.SetValue("")
-						} else {
-							m.editor.SetValue(fmt.Sprintf("%v", i.value))
-						}
-						m.editor.Focus()
-
-					default:
-						// Show text editor
-						m.showEditor = true
-						m.editor.SetValue(fmt.Sprintf("%v", i.value))
-						m.editor.Focus()
-					}
-				}
-			}
-
-		case "space":
-			// Toggle boolean values
-			if m.activePanel == 1 && !m.showEditor {
-				if i, ok := m.settings.SelectedItem().(Setting); ok && i.valueType == "bool" {
-					newVal := !viper.GetBool(i.key)
-					viper.Set(i.key, newVal)
-
-					// Update the setting in the list
-					for j, item := range m.settings.Items() {
-						if s, ok := item.(Setting); ok && s.key == i.key {
-							s.value = newVal
-							m.settings.SetItem(j, s)
-							break
-						}
-					}
-				}
-			}
 		}
 
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.ready = true
-
-		// Set list sizes to fit within available space
-		// Be more conservative with height allocation
-		contentHeight := m.height - 10
-		if contentHeight < 8 {
-			contentHeight = 8
-		}
-
-		// Set width but let the list determine its own height
-		m.sections.SetWidth(m.width - 4)
-		m.settings.SetWidth(m.width - 4)
-
-		// Set height for model selector
-		if m.showModelSelector {
-			m.modelSelector.SetSize(m.width-10, m.height-10)
-		}
-
-	case settingsLoadedMsg:
-		m.settings.SetItems(msg.items)
-		m.currentSection = msg.section
-
-	case resetSavedMsg:
-		m.saved = false
-
-	case errMsg:
-		m.err = msg.err
-	}
-
-	// Handle list updates
-	if !m.showEditor {
-		if m.activePanel == 0 {
-			newSections, cmd := m.sections.Update(msg)
-			m.sections = newSections
-			cmds = append(cmds, cmd)
-		} else {
-			newSettings, cmd := m.settings.Update(msg)
-			m.settings = newSettings
+		// Update the model selector
+		var cmd tea.Cmd
+		m.modelSelector, cmd = m.modelSelector.Update(msg)
+		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-	} else {
-		// Update editor
-		newEditor, cmd := m.editor.Update(msg)
-		m.editor = newEditor
-		cmds = append(cmds, cmd)
 	}
 
+	// Handle other message types and updates for main UI
+	// ... add more message handling here
+
+	// Return the model and batched commands
 	return m, tea.Batch(cmds...)
 }
-
-// Custom messages
-type resetSavedMsg struct{}
 
 func (m ConfigModel) View() string {
 	if !m.ready {
@@ -893,6 +648,34 @@ func (m ConfigModel) View() string {
 		mainView = panelStyle.Render(m.settings.View())
 	}
 
+	// Editor view
+	if m.showEditor {
+		editorStyle := lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("205")).
+			Padding(1, 2)
+
+		editorView := editorStyle.Render(
+			fmt.Sprintf("%s\n\n%s",
+				m.editingSetting.Title(),
+				m.editor.View(),
+			),
+		)
+
+		// Create a full-screen overlay with the editor centered
+		overlay := lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			editorView,
+			lipgloss.WithWhitespaceChars(""),
+			lipgloss.WithWhitespaceForeground(lipgloss.Color("0")),
+		)
+
+		return overlay
+	}
+
 	// Status message
 	statusMsg := ""
 	if m.saved {
@@ -937,34 +720,10 @@ func (m ConfigModel) View() string {
 	return finalView
 }
 
-func runConfigTui(cmd *cobra.Command, args []string) error {
-	// Make sure config is loaded before starting the TUI
-	if viper.ConfigFileUsed() == "" {
-		fmt.Println("No configuration file found. Creating default configuration.")
-		if err := viper.SafeWriteConfig(); err != nil {
-			return fmt.Errorf("failed to create default config: %w", err)
-		}
-	}
-
-	// Initialize with reasonable defaults
-	model := initialConfigModel()
-
-	// Set up the program with alt screen
-	p := tea.NewProgram(
-		model,
-		tea.WithAltScreen(),
-	)
-
-	// Run the program
-	finalModel, err := p.Run()
-	if err != nil {
-		return fmt.Errorf("error running TUI: %w", err)
-	}
-
-	// Check if configuration was updated
-	if m, ok := finalModel.(ConfigModel); ok && m.saved {
-		fmt.Println("Configuration saved successfully.")
-	}
-
-	return nil
+// RunConfigTUI starts the configuration TUI
+func RunConfigTUI(ctx *config.AppContext) error {
+	model := NewConfigModel(ctx)
+	p := tea.NewProgram(model, tea.WithAltScreen())
+	_, err := p.Run()
+	return err
 }
