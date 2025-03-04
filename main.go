@@ -1,4 +1,3 @@
-// main.go
 package main
 
 import (
@@ -10,6 +9,9 @@ import (
 	"github.com/jasonKoogler/comma/internal/config"
 	"github.com/mitchellh/go-homedir"
 )
+
+// Version information - will be set during build time via -ldflags
+var version = "dev"
 
 func main() {
 	// Get home directory for config
@@ -32,6 +34,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error initializing application: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Pass version to command executor
+	cmd.SetVersion(version)
 
 	// Execute the root command
 	if err := cmd.Execute(appCtx); err != nil {

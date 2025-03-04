@@ -87,8 +87,8 @@ func (a *App) Init() tea.Cmd {
 
 // Update handles messages and updates the application state
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	var cmds []tea.Cmd
+	// var cmd tea.Cmd
+	// var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -119,14 +119,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ModeMain:
 		return a.updateMainScreen(msg)
 	case ModeCommit:
-		// Launch the commit TUI
-		return a, tea.Quit
+		// We'll handle commit mode later
+		return a, nil
 	case ModeConfig:
-		// Launch the config TUI
-		return a, tea.Quit
+		// We'll handle config mode later
+		return a, nil
 	case ModeAnalyze:
-		// Launch the analyze TUI
-		return a, tea.Quit
+		// We'll handle analyze mode later
+		return a, nil
 	default:
 		return a, nil
 	}
@@ -155,13 +155,16 @@ func (a *App) updateMainScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch a.mainScreen.cursor {
 			case 0: // Generate Commit Message
 				a.mode = ModeCommit
-				return a, tea.Quit
+				// We'll implement initialization for commit mode later
+				return a, nil
 			case 1: // Configure Application
 				a.mode = ModeConfig
-				return a, tea.Quit
+				// We'll implement initialization for config mode later
+				return a, nil
 			case 2: // Analyze Repository
 				a.mode = ModeAnalyze
-				return a, tea.Quit
+				// We'll implement initialization for analyze mode later
+				return a, nil
 			case 3: // Exit
 				return a, tea.Quit
 			}
@@ -236,22 +239,6 @@ func RunTUI(ctx *config.AppContext, mode TUIMode) error {
 	app := NewApp(ctx, mode)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 
-	model, err := p.Run()
-	if err != nil {
-		return err
-	}
-
-	// Check if we need to launch another TUI mode
-	if app, ok := model.(*App); ok {
-		switch app.mode {
-		case ModeCommit:
-			return RunCommitTUI(ctx)
-		case ModeConfig:
-			return RunConfigTUI(ctx)
-		case ModeAnalyze:
-			return RunAnalyzeTUI(ctx)
-		}
-	}
-
-	return nil
+	_, err := p.Run()
+	return err
 }
