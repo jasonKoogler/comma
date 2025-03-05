@@ -1,124 +1,135 @@
-# Variables
-BINARY_NAME=comma
-GOBIN=$(shell go env GOPATH)/bin
-PACKAGE=github.com/username/comma
-VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_FLAGS=-ldflags "-X main.version=$(VERSION)" -trimpath
-COVERAGE_DIR=./coverage
-GO_FILES=$(shell find . -name '*.go' -not -path './vendor/*')
-GO_PACKAGES=$(shell go list ./... | grep -v /vendor/)
+# Project variables
+APP_NAME := comma
+MAIN_PATH := ./main.go
+BIN_DIR := ./bin
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+BUILD_FLAGS := -ldflags="-s -w -X main.version=$(VERSION)"
+PACKAGES := $(shell go list ./... | grep -v /vendor/)
+
+# Go commands
+GO := go
+GOBUILD := $(GO) build
+GOTEST := $(GO) test
+GOLINT := golangci-lint
+
+# Determine OS and Architecture
+ifeq ($(OS),Windows_NT)
+	BINARY_NAME := $(APP_NAME).exe
+	PLATFORM := windows
+else
+	UNAME_S := $(shell uname -s)
+	ifeq ($(UNAME_S),Linux)
+		BINARY_NAME := $(APP_NAME)
+		PLATFORM := linux
+	endif
+	ifeq ($(UNAME_S),Darwin)
+		BINARY_NAME := $(APP_NAME)
+		PLATFORM := macos
+	endif
+endif
 
 # Default target
-.PHONY: default
-default: build
+.PHONY: all
+all: clean build
 
 # Build the application
 .PHONY: build
 build:
-	@echo "Building $(BINARY_NAME)..."
-	@go build $(BUILD_FLAGS) -o $(BINARY_NAME) .
+	@echo "Building $(APP_NAME)..."
+	@mkdir -p $(BIN_DIR)
+	@$(GOBUILD) $(BUILD_FLAGS) -o $(BIN_DIR)/$(BINARY_NAME) $(MAIN_PATH)
+	@echo "Build complete: $(BIN_DIR)/$(BINARY_NAME)"
 
-# Run the application in development mode
-.PHONY: run
-run:
-	@echo "Running $(BINARY_NAME)..."
-	@go run .
+# Cross-compile for multiple platforms
+.PHONY: build-all
+build-all: build-linux build-windows build-macos
 
-# Run specific command
-.PHONY: run-cmd
-run-cmd:
-	@go run . $(filter-out $@,$(MAKECMDGOALS))
+.PHONY: build-linux
+build-linux:
+	@echo "Building for Linux..."
+	@mkdir -p $(BIN_DIR)
+	@GOOS=linux GOARCH=amd64 $(GOBUILD) $(BUILD_FLAGS) -o $(BIN_DIR)/$(APP_NAME)-linux-amd64 $(MAIN_PATH)
+	@echo "Linux build complete"
 
-# Allow arbitrary arguments to be passed to run-cmd
-%:
-	@:
+.PHONY: build-windows
+build-windows:
+	@echo "Building for Windows..."
+	@mkdir -p $(BIN_DIR)
+	@GOOS=windows GOARCH=amd64 $(GOBUILD) $(BUILD_FLAGS) -o $(BIN_DIR)/$(APP_NAME)-windows-amd64.exe $(MAIN_PATH)
+	@echo "Windows build complete"
+
+.PHONY: build-macos
+build-macos:
+	@echo "Building for macOS..."
+	@mkdir -p $(BIN_DIR)
+	@GOOS=darwin GOARCH=amd64 $(GOBUILD) $(BUILD_FLAGS) -o $(BIN_DIR)/$(APP_NAME)-macos-amd64 $(MAIN_PATH)
+	@echo "macOS build complete"
 
 # Install the application locally
 .PHONY: install
-install: build
-	@echo "Installing $(BINARY_NAME)..."
-	@cp $(BINARY_NAME) $(GOBIN)/
+install:
+	@echo "Installing $(APP_NAME)..."
+	@$(GO) install $(BUILD_FLAGS) $(MAIN_PATH)
+	@echo "Installation complete"
 
-# Clean up build artifacts
-.PHONY: clean
-clean:
-	@echo "Cleaning up..."
-	@rm -f $(BINARY_NAME)
-	@rm -rf $(COVERAGE_DIR)
-	@rm -f coverage.out
+# Run the application in CLI mode
+.PHONY: run
+run: build
+	@echo "Running $(APP_NAME)..."
+	@$(BIN_DIR)/$(BINARY_NAME) 2>&1
 
-# Run all tests
+# Run a specific CLI command
+.PHONY: run-cmd
+run-cmd: build
+	@echo "Running $(APP_NAME) $(CMD)..."
+	@$(BIN_DIR)/$(BINARY_NAME) $(CMD) $(ARGS)
+
+# Run the TUI interface
+.PHONY: run-tui
+run-tui: build
+	@echo "Running $(APP_NAME) TUI..."
+	@$(BIN_DIR)/$(BINARY_NAME) tui
+
+# Run tests
 .PHONY: test
 test:
 	@echo "Running tests..."
-	@go test -race -coverprofile=coverage.out ./...
+	@$(GOTEST) -v $(PACKAGES)
 
-# Run tests with verbose output
-.PHONY: test-verbose
-test-verbose:
-	@echo "Running tests with verbose output..."
-	@go test -race -v -coverprofile=coverage.out ./...
-
-# Show test coverage
-.PHONY: coverage
-coverage: test
-	@echo "Generating coverage report..."
-	@mkdir -p $(COVERAGE_DIR)
-	@go tool cover -html=coverage.out -o $(COVERAGE_DIR)/coverage.html
-	@go tool cover -func=coverage.out
-
-# Open test coverage in browser
-.PHONY: coverage-view
-coverage-view: coverage
-	@echo "Opening coverage report in browser..."
-	@open $(COVERAGE_DIR)/coverage.html
+# Run tests with coverage
+.PHONY: test-coverage
+test-coverage:
+	@echo "Running tests with coverage..."
+	@$(GOTEST) -coverprofile=coverage.out $(PACKAGES)
+	@$(GO) tool cover -html=coverage.out
 
 # Run linter
 .PHONY: lint
 lint:
-	@echo "Running linter..."
-	@if command -v golangci-lint > /dev/null; then \
-		golangci-lint run ./...; \
-	else \
-		echo "golangci-lint not found, please install it: https://golangci-lint.run/usage/install/"; \
-		exit 1; \
-	fi
+	@echo "Linting code..."
+	@$(GOLINT) run ./...
 
-# Install dependencies
-.PHONY: deps
-deps:
-	@echo "Installing dependencies..."
-	@go mod download
-	@if ! command -v golangci-lint > /dev/null; then \
-		echo "Installing golangci-lint..."; \
-		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.51.2; \
-	fi
+# Clean build artifacts
+.PHONY: clean
+clean:
+	@echo "Cleaning build artifacts..."
+	@rm -rf $(BIN_DIR)
+	@echo "Clean complete"
 
-# Format code
-.PHONY: fmt
-fmt:
-	@echo "Formatting code..."
-	@gofmt -s -w $(GO_FILES)
+# Setup development environment
+.PHONY: dev-setup
+dev-setup:
+	@echo "Setting up development environment..."
+	@go mod tidy
+	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@echo "Development setup complete"
 
-# Verify that the code is properly formatted
-.PHONY: fmt-check
-fmt-check:
-	@echo "Checking code formatting..."
-	@if [ -n "$$(gofmt -s -l $(GO_FILES))" ]; then \
-		echo "The following files are not properly formatted:"; \
-		gofmt -s -l $(GO_FILES); \
-		exit 1; \
-	fi
-
-# Check for suspicious constructs
-.PHONY: vet
-vet:
-	@echo "Running go vet..."
-	@go vet ./...
-
-# Run all checks
-.PHONY: check
-check: fmt-check vet lint test
+# Generate documentation
+.PHONY: docs
+docs:
+	@echo "Generating documentation..."
+	@go doc -all > DOCUMENTATION.md
+	@echo "Documentation generated"
 
 # Create a new release
 .PHONY: release
@@ -130,55 +141,21 @@ release:
 	fi
 	@git tag -a $(VERSION) -m "Release $(VERSION)"
 	@git push origin $(VERSION)
+	@echo "Release $(VERSION) created successfully!"
 
-# Setup git hook for development
-.PHONY: setup-dev-hook
-setup-dev-hook: build
-	@echo "Setting up git hook for development..."
-	@cp $(BINARY_NAME) $(GOBIN)/
-	@$(BINARY_NAME) install-hook
-	@echo "Git hook installed successfully!"
-
-# Run with specific command examples
-.PHONY: run-generate
-run-generate:
-	@go run . generate --verbose
-
-.PHONY: run-tui
-run-tui:
-	@go run . tui
-
-.PHONY: run-setup
-run-setup:
-	@go run . setup
-
-.PHONY: run-analyze
-run-analyze:
-	@go run . analyze
-
-# Help
+# Show help
 .PHONY: help
 help:
-	@echo "Available targets:"
-	@echo "  build           - Build the application"
-	@echo "  run             - Run the application in development mode"
-	@echo "  run-cmd CMD=xx  - Run a specific command (e.g., make run-cmd CMD='generate --verbose')"
-	@echo "  run-generate    - Run the generate command with verbose flag"
-	@echo "  run-tui         - Run the interactive terminal UI"
-	@echo "  run-setup       - Run the configuration UI"
-	@echo "  run-analyze     - Run the repository analysis"
-	@echo "  install         - Install the application locally"
-	@echo "  setup-dev-hook  - Install the application and set up the git hook"
-	@echo "  clean           - Clean up build artifacts"
-	@echo "  test            - Run all tests"
-	@echo "  test-verbose    - Run tests with verbose output"
-	@echo "  coverage        - Show test coverage"
-	@echo "  coverage-view   - Open test coverage in browser"
-	@echo "  lint            - Run linter"
-	@echo "  deps            - Install dependencies"
-	@echo "  fmt             - Format code"
-	@echo "  fmt-check       - Verify that the code is properly formatted"
-	@echo "  vet             - Check for suspicious constructs"
-	@echo "  check           - Run all checks (fmt-check, vet, lint, test)"
-	@echo "  release         - Create a new release"
-	@echo "  help            - Show this help message"
+	@echo "Comma Makefile Help"
+	@echo "---------------"
+	@echo "make                 - Build the application"
+	@echo "make build-all       - Build for Linux, Windows, and macOS"
+	@echo "make run             - Run the application"
+	@echo "make run-cmd CMD=... - Run a specific command (e.g., make run-cmd CMD=generate)"
+	@echo "make run-tui         - Run the TUI interface"
+	@echo "make test            - Run tests"
+	@echo "make lint            - Run linter"
+	@echo "make clean           - Remove build artifacts"
+	@echo "make install         - Install locally"
+	@echo "make release VERSION=v1.0.0 - Create a new versioned release"
+	@echo "make help            - Show this help message"
