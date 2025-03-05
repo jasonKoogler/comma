@@ -16,14 +16,14 @@ import (
 
 // AnalyzeModel represents the TUI state for repository analysis
 type AnalyzeModel struct {
-	viewport     viewport.Model
-	list         list.Model
-	width        int
-	height       int
-	ready        bool
-	err          error
-	ctx          *config.AppContext
-	repo         *git.Repository
+	viewport viewport.Model
+	list     list.Model
+	width    int
+	height   int
+	ready    bool
+	err      error
+	ctx      *config.AppContext
+	// repo         *git.Repository
 	days         int
 	commitStats  map[string]int
 	authorStats  map[string]int

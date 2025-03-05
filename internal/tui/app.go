@@ -30,9 +30,9 @@ type App struct {
 
 // MainScreen represents the initial screen with mode selection
 type MainScreen struct {
-	choices      []string
-	cursor       int
-	selected     bool
+	choices []string
+	cursor  int
+	// selected     bool
 	width        int
 	height       int
 	titleStyle   lipgloss.Style
@@ -87,9 +87,6 @@ func (a *App) Init() tea.Cmd {
 
 // Update handles messages and updates the application state
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// var cmd tea.Cmd
-	// var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -119,14 +116,40 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ModeMain:
 		return a.updateMainScreen(msg)
 	case ModeCommit:
-		// We'll handle commit mode later
-		return a, nil
+		// Launch the commit TUI
+		return a, tea.Sequence(
+			tea.Quit,
+			func() tea.Msg {
+				// This is a bit of a hack, but it allows us to quit this program
+				// and start the commit TUI
+				go func() {
+					_ = RunCommitTUI(a.ctx)
+				}()
+				return nil
+			},
+		)
 	case ModeConfig:
-		// We'll handle config mode later
-		return a, nil
+		// Launch the config TUI
+		return a, tea.Sequence(
+			tea.Quit,
+			func() tea.Msg {
+				go func() {
+					_ = RunConfigTUI(a.ctx)
+				}()
+				return nil
+			},
+		)
 	case ModeAnalyze:
-		// We'll handle analyze mode later
-		return a, nil
+		// Launch the analyze TUI
+		return a, tea.Sequence(
+			tea.Quit,
+			func() tea.Msg {
+				go func() {
+					_ = RunAnalyzeTUI(a.ctx)
+				}()
+				return nil
+			},
+		)
 	default:
 		return a, nil
 	}
@@ -236,6 +259,17 @@ func (a *App) viewMainScreen() string {
 
 // RunTUI starts the TUI application
 func RunTUI(ctx *config.AppContext, mode TUIMode) error {
+	// If not in main mode, directly launch the appropriate TUI
+	switch mode {
+	case ModeCommit:
+		return RunCommitTUI(ctx)
+	case ModeConfig:
+		return RunConfigTUI(ctx)
+	case ModeAnalyze:
+		return RunAnalyzeTUI(ctx)
+	}
+
+	// Otherwise, launch the main app
 	app := NewApp(ctx, mode)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 

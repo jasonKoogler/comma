@@ -62,10 +62,10 @@ func getSettingDescription(s Setting) string {
 	return fmt.Sprintf("%s: %s", s.description, lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Render(value))
 }
 
-// modelSelectionMsg represents a model selection message
-type modelSelectionMsg struct {
-	model string
-}
+// // modelSelectionMsg represents a model selection message
+// type modelSelectionMsg struct {
+// 	model string
+// }
 
 // modelItem represents a model in the selection list
 type modelItem struct {
@@ -576,10 +576,251 @@ func (m ConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Handle other message types and updates for main UI
-	// ... add more message handling here
+	// Handle editor if it's active
+	if m.showEditor {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "esc":
+				// Cancel editing
+				m.showEditor = false
+				return m, nil
 
-	// Return the model and batched commands
+			case "enter":
+				// Save the edited value
+				newValue := m.editor.Value()
+
+				// Update the value in viper
+				switch m.editingSetting.valueType {
+				case "bool":
+					viper.Set(m.editingSetting.key, newValue == "true" || newValue == "yes" || newValue == "1")
+				case "int":
+					// Simple conversion, in a real app you'd want to handle errors
+					var intVal int
+					fmt.Sscanf(newValue, "%d", &intVal)
+					viper.Set(m.editingSetting.key, intVal)
+				case "float":
+					var floatVal float64
+					fmt.Sscanf(newValue, "%f", &floatVal)
+					viper.Set(m.editingSetting.key, floatVal)
+				case "password":
+					// Store the actual password
+					viper.Set(m.editingSetting.key, newValue)
+				default:
+					// String and other types
+					viper.Set(m.editingSetting.key, newValue)
+				}
+
+				// Update the setting in the list
+				for i, item := range m.settings.Items() {
+					if s, ok := item.(Setting); ok && s.key == m.editingSetting.key {
+						// Update the value based on type
+						switch s.valueType {
+						case "bool":
+							s.value = newValue == "true" || newValue == "yes" || newValue == "1"
+						case "int":
+							var intVal int
+							fmt.Sscanf(newValue, "%d", &intVal)
+							s.value = intVal
+						case "float":
+							var floatVal float64
+							fmt.Sscanf(newValue, "%f", &floatVal)
+							s.value = floatVal
+						case "password":
+							s.value = maskAPIKey(newValue)
+						default:
+							s.value = newValue
+						}
+						m.settings.SetItem(i, s)
+						break
+					}
+				}
+
+				// Close editor and mark as saved
+				m.showEditor = false
+				m.saved = true
+
+				// Reset saved status after a delay
+				return m, func() tea.Msg {
+					return resetSavedMsg{}
+				}
+			}
+		}
+
+		// Update the editor
+		var cmd tea.Cmd
+		m.editor, cmd = m.editor.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
+	}
+
+	// Handle other message types
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+
+		case "esc":
+			if m.activePanel == 1 {
+				// Go back to sections panel
+				m.activePanel = 0
+				return m, nil
+			}
+
+		case "left", "h":
+			if m.activePanel == 1 {
+				// Go back to sections panel
+				m.activePanel = 0
+				return m, nil
+			}
+
+		case "right", "l":
+			if m.activePanel == 0 {
+				// Go to settings panel
+				m.activePanel = 1
+				return m, nil
+			}
+
+		case "enter", " ":
+			if m.activePanel == 0 {
+				// Select section
+				if item, ok := m.sections.SelectedItem().(Section); ok {
+					m.currentSection = item.title
+					m.activePanel = 1
+					return m, loadSettings(item.title)
+				}
+			} else if m.activePanel == 1 {
+				// Edit setting
+				if item, ok := m.settings.SelectedItem().(Setting); ok {
+					switch item.valueType {
+					case "bool":
+						// Toggle boolean values directly
+						newValue := !item.value.(bool)
+						viper.Set(item.key, newValue)
+
+						// Update the item in the list
+						for i, listItem := range m.settings.Items() {
+							if s, ok := listItem.(Setting); ok && s.key == item.key {
+								s.value = newValue
+								m.settings.SetItem(i, s)
+								break
+							}
+						}
+
+						// Mark as saved
+						m.saved = true
+						return m, func() tea.Msg {
+							return resetSavedMsg{}
+						}
+
+					case "select":
+						// For "llm.model", show model selector
+						if item.key == "llm.model" {
+							m.editingSetting = item
+							return showModelSelection(m)
+						}
+
+						// For other select types, cycle through options
+						currentValue := fmt.Sprintf("%v", item.value)
+						nextIndex := 0
+
+						for i, option := range item.options {
+							if option == currentValue {
+								nextIndex = (i + 1) % len(item.options)
+								break
+							}
+						}
+
+						newValue := item.options[nextIndex]
+
+						// If custom option is selected, show editor
+						if newValue == customOption {
+							m.editingSetting = item
+							return handleCustomSelection(m, item)
+						}
+
+						// Otherwise update the value
+						viper.Set(item.key, newValue)
+
+						// Update the item in the list
+						for i, listItem := range m.settings.Items() {
+							if s, ok := listItem.(Setting); ok && s.key == item.key {
+								s.value = newValue
+								m.settings.SetItem(i, s)
+								break
+							}
+						}
+
+						// Mark as saved
+						m.saved = true
+						return m, func() tea.Msg {
+							return resetSavedMsg{}
+						}
+
+					default:
+						// For other types, show editor
+						m.showEditor = true
+						m.editingSetting = item
+						m.editor.SetValue(fmt.Sprintf("%v", item.value))
+						m.editor.Focus()
+						return m, nil
+					}
+				}
+			}
+
+		case "ctrl+s":
+			// Save configuration
+			err := viper.WriteConfig()
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
+
+			m.saved = true
+			return m, func() tea.Msg {
+				return resetSavedMsg{}
+			}
+		}
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.ready = true
+
+		// Adjust component sizes
+		sectionWidth := m.width / 3
+		settingsWidth := m.width - sectionWidth
+
+		m.sections.SetSize(sectionWidth, m.height-4)
+		m.settings.SetSize(settingsWidth, m.height-4)
+
+		// Also resize model selector if active
+		if m.showModelSelector {
+			m.modelSelector.SetSize(m.width-20, m.height-10)
+		}
+
+	case settingsLoadedMsg:
+		m.settings.SetItems(msg.items)
+		m.currentSection = msg.section
+
+	case resetSavedMsg:
+		m.saved = false
+	}
+
+	// Update active component
+	var cmd tea.Cmd
+	if m.activePanel == 0 {
+		m.sections, cmd = m.sections.Update(msg)
+	} else {
+		m.settings, cmd = m.settings.Update(msg)
+	}
+	if cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
 	return m, tea.Batch(cmds...)
 }
 
