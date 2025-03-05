@@ -3,6 +3,9 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -228,9 +231,6 @@ type settingsLoadedMsg struct {
 	items   []list.Item
 }
 
-// resetSavedMsg is a message to reset the saved status
-type resetSavedMsg struct{}
-
 // showModelSelection shows the model selection UI
 func showModelSelection(m ConfigModel) (tea.Model, tea.Cmd) {
 	// Get current provider
@@ -271,6 +271,11 @@ func showModelSelection(m ConfigModel) (tea.Model, tea.Cmd) {
 
 // handleCustomSelection handles custom input for provider/model selection
 func handleCustomSelection(m ConfigModel, setting Setting) (tea.Model, tea.Cmd) {
+	// Skip editor for "local" provider
+	if setting.key == "llm.provider" && fmt.Sprintf("%v", setting.value) == "local" {
+		return m, nil
+	}
+
 	m.showEditor = true
 	m.editingSetting = setting
 
@@ -325,6 +330,15 @@ func loadSettings(section string) tea.Cmd {
 			var modelOptions []string
 			if models, ok := supportedModels[currentProvider]; ok {
 				modelOptions = models
+
+				// If current model is not in the list for this provider, reset to the first model
+				if currentModel != "" && !contains(modelOptions, currentModel) && currentModel != customOption {
+					// Set the first model as default for this provider
+					if len(modelOptions) > 0 && modelOptions[0] != customOption {
+						currentModel = modelOptions[0]
+						viper.Set("llm.model", currentModel)
+					}
+				}
 			} else {
 				modelOptions = []string{currentModel, customOption}
 			}
@@ -604,8 +618,29 @@ func (m ConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					fmt.Sscanf(newValue, "%f", &floatVal)
 					viper.Set(m.editingSetting.key, floatVal)
 				case "password":
-					// Store the actual password
-					viper.Set(m.editingSetting.key, newValue)
+					// Store in vault
+					if err := m.ctx.CredentialMgr.Store(strings.Split(m.editingSetting.key, ".")[1], newValue); err != nil {
+						m.err = fmt.Errorf("failed to store API key: %w", err)
+						return m, nil
+					}
+
+					// Don't store the actual key in viper, just mark that it's set
+					viper.Set(m.editingSetting.key, "set")
+
+					// If this is the current provider, also update the client
+					if strings.Split(m.editingSetting.key, ".")[1] == viper.GetString("llm.provider") {
+						// Update the endpoint based on the provider
+						switch viper.GetString("llm.provider") {
+						case "openai":
+							viper.Set("llm.endpoint", "https://api.openai.com/v1/chat/completions")
+						case "anthropic":
+							viper.Set("llm.endpoint", "https://api.anthropic.com/v1/messages")
+						case "google":
+							viper.Set("llm.endpoint", "https://generativelanguage.googleapis.com/v1beta/models")
+						case "mistral":
+							viper.Set("llm.endpoint", "https://api.mistral.ai/v1/chat/completions")
+						}
+					}
 				default:
 					// String and other types
 					viper.Set(m.editingSetting.key, newValue)
@@ -640,7 +675,6 @@ func (m ConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showEditor = false
 				m.saved = true
 
-				// Reset saved status after a delay
 				return m, func() tea.Msg {
 					return resetSavedMsg{}
 				}
@@ -717,10 +751,82 @@ func (m ConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 
 					case "select":
-						// For "llm.model", show model selector
+						// For "llm.provider", show model selector
 						if item.key == "llm.model" {
 							m.editingSetting = item
 							return showModelSelection(m)
+						}
+
+						// For provider selection, handle differently to update API key settings
+						if item.key == "llm.provider" {
+							currentValue := fmt.Sprintf("%v", item.value)
+							nextIndex := 0
+
+							for i, option := range item.options {
+								if option == currentValue {
+									nextIndex = (i + 1) % len(item.options)
+									break
+								}
+							}
+
+							newValue := item.options[nextIndex]
+
+							// Special case for "local" provider - never show editor
+							if newValue == "local" {
+								// Just update the value and reload settings
+								viper.Set(item.key, newValue)
+
+								// Update the item in the list
+								for i, listItem := range m.settings.Items() {
+									if s, ok := listItem.(Setting); ok && s.key == item.key {
+										s.value = newValue
+										m.settings.SetItem(i, s)
+										break
+									}
+								}
+
+								m.saved = true
+								return m, tea.Batch(
+									loadSettings("LLM Providers"),
+									func() tea.Msg { return resetSavedMsg{} },
+								)
+							}
+
+							// For custom option, show editor
+							if newValue == customOption {
+								// First update the value
+								viper.Set(item.key, newValue)
+
+								// Update the item in the list
+								for i, listItem := range m.settings.Items() {
+									if s, ok := listItem.(Setting); ok && s.key == item.key {
+										s.value = newValue
+										m.settings.SetItem(i, s)
+										break
+									}
+								}
+
+								m.editingSetting = item
+								return handleCustomSelection(m, item)
+							}
+
+							// For other providers, just update and reload
+							viper.Set(item.key, newValue)
+
+							// Update the item in the list
+							for i, listItem := range m.settings.Items() {
+								if s, ok := listItem.(Setting); ok && s.key == item.key {
+									s.value = newValue
+									m.settings.SetItem(i, s)
+									break
+								}
+							}
+
+							m.saved = true
+							return m, tea.Batch(
+								loadSettings("LLM Providers"),
+								func() tea.Msg { return resetSavedMsg{} },
+							)
 						}
 
 						// For other select types, cycle through options
@@ -963,6 +1069,20 @@ func (m ConfigModel) View() string {
 
 // RunConfigTUI starts the configuration TUI
 func RunConfigTUI(ctx *config.AppContext) error {
+	// Ensure config directory exists before starting
+	configDir := filepath.Dir(viper.ConfigFileUsed())
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Create an empty config file if it doesn't exist
+	if _, err := os.Stat(viper.ConfigFileUsed()); os.IsNotExist(err) {
+		// Create an empty YAML file
+		if err := os.WriteFile(viper.ConfigFileUsed(), []byte{}, 0644); err != nil {
+			return fmt.Errorf("failed to create config file: %w", err)
+		}
+	}
+
 	model := NewConfigModel(ctx)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()

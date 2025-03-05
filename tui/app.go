@@ -70,11 +70,38 @@ func (a *App) Init() tea.Cmd {
 	case ModeMain:
 		return nil // Main screen doesn't need any initial command
 	case ModeCommit:
-		return nil // We'll implement commit mode later
+		// Launch commit mode immediately
+		return tea.Sequence(
+			tea.Quit,
+			func() tea.Msg {
+				go func() {
+					_ = RunCommitTUI(a.ctx)
+				}()
+				return nil
+			},
+		)
 	case ModeConfig:
-		return nil // We'll implement config mode later
+		// Launch config mode immediately
+		return tea.Sequence(
+			tea.Quit,
+			func() tea.Msg {
+				go func() {
+					_ = RunConfigTUI(a.ctx)
+				}()
+				return nil
+			},
+		)
 	case ModeAnalyze:
-		return nil // We'll implement analyze mode later
+		// Launch analyze mode immediately
+		return tea.Sequence(
+			tea.Quit,
+			func() tea.Msg {
+				go func() {
+					_ = RunAnalyzeTUI(a.ctx)
+				}()
+				return nil
+			},
+		)
 	default:
 		return nil
 	}

@@ -27,7 +27,11 @@ run:
 # Run specific command
 .PHONY: run-cmd
 run-cmd:
-	@go run . $(CMD)
+	@go run . $(filter-out $@,$(MAKECMDGOALS))
+
+# Allow arbitrary arguments to be passed to run-cmd
+%:
+	@:
 
 # Install the application locally
 .PHONY: install

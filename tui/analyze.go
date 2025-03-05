@@ -1,10 +1,10 @@
+// Package tui implements terminal user interfaces for the application
 package tui
 
 import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -15,47 +15,53 @@ import (
 )
 
 // AnalyzeModel represents the TUI state for repository analysis
+// It manages a split view showing commit types and detailed statistics
 type AnalyzeModel struct {
-	viewport     viewport.Model
-	list         list.Model
-	width        int
-	height       int
-	ready        bool
-	err          error
-	ctx          *config.AppContext
-	days         int
-	commitStats  map[string]int
-	authorStats  map[string]int
-	totalCommits int
-	spinner      SpinnerModel
+	viewport            viewport.Model     // Displays detailed analysis report
+	list                list.Model         // Displays list of commit types
+	width               int                // Current terminal width
+	height              int                // Current terminal height
+	ready               bool               // Whether the UI is ready to be rendered
+	err                 error              // Current error state, if any
+	ctx                 *config.AppContext // Application context with logger and services
+	days                int                // Number of days to analyze
+	commitStats         map[string]int     // Statistics about commit types
+	authorStats         map[string]int     // Statistics about repository authors
+	totalCommits        int                // Total number of commits analyzed
+	conventionalPercent float64            // Percentage of conventional commits
+	spinner             SpinnerModel       // Spinner for loading state
 }
 
 // CommitTypeItem represents a commit type in the list
+// It implements the list.Item interface for display in the list component
 type CommitTypeItem struct {
-	commitType string
-	count      int
-	percentage float64
+	commitType string  // The conventional commit type (feat, fix, etc.)
+	count      int     // Number of commits of this type
+	percentage float64 // Percentage of total commits
 }
 
+// Title returns the commit type for display in the list
 func (i CommitTypeItem) Title() string {
 	return i.commitType
 }
 
+// Description returns the count and percentage for display in the list
 func (i CommitTypeItem) Description() string {
 	return fmt.Sprintf("%d commits (%.1f%%)", i.count, i.percentage)
 }
 
+// FilterValue returns the commit type to enable filtering in the list
 func (i CommitTypeItem) FilterValue() string {
 	return i.commitType
 }
 
-// NewAnalyzeModel initializes a new analyze TUI model
+// NewAnalyzeModel initializes a new analyze TUI model with default settings
 func NewAnalyzeModel(ctx *config.AppContext) AnalyzeModel {
-	// Initialize viewport for detailed stats
+	// Initialize viewport for detailed statistics report
 	detailView := viewport.New(0, 0)
 	detailView.Style = InactiveBorderStyle
 
-	// Initialize list for commit types
+	// Initialize list for commit types summary
 	typeList := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
 	typeList.Title = "Commit Types"
 	typeList.SetShowStatusBar(false)
@@ -66,139 +72,113 @@ func NewAnalyzeModel(ctx *config.AppContext) AnalyzeModel {
 	return AnalyzeModel{
 		viewport: detailView,
 		list:     typeList,
-		days:     30, // Default to 30 days
+		days:     30, // Default to analyzing the last 30 days
 		spinner:  NewSpinner(),
 		ctx:      ctx,
 	}
 }
 
+// Init initializes the model and returns initial commands to execute
+// Implements required method for tea.Model interface
 func (m AnalyzeModel) Init() tea.Cmd {
 	m.ctx.Logger.Info("Initializing analyze model with %d days of history", m.days)
 	return tea.Batch(
-		analyzeRepository(m.ctx, m.days),
-		m.spinner.Start(),
+		analyzeRepository(m.ctx, m.days), // Start repository analysis
+		m.spinner.Start(),                // Start loading spinner
 	)
 }
 
+// analyzeResultMsg is sent when repository analysis is complete
 type analyzeResultMsg struct {
-	commitStats  map[string]int
-	authorStats  map[string]int
-	totalCommits int
-	err          error
+	commitStats         map[string]int // Statistics about commit types
+	authorStats         map[string]int // Statistics about repository authors
+	totalCommits        int            // Total number of commits analyzed
+	conventionalPercent float64        // Percentage of conventional commits
+	err                 error          // Error if analysis failed
 }
 
+// analyzeRepository creates a command that analyzes the git repository
+// to gather statistics about commit types and authors
 func analyzeRepository(ctx *config.AppContext, days int) tea.Cmd {
 	return func() tea.Msg {
 		ctx.Logger.Info("Analyzing repository for the last %d days", days)
 
-		// Get git repository
+		// Initialize git repository from current directory
 		repo, err := git.NewRepository(".")
 		if err != nil {
 			ctx.Logger.Error("Failed to initialize repository: %v", err)
 			return analyzeResultMsg{err: err}
 		}
 
-		// Get commit history
-		since := time.Now().AddDate(0, 0, -days)
-		commits, err := repo.GetCommitHistory(since)
+		// Use the analyze service
+		result, err := ctx.AnalyzeService.AnalyzeRepository(repo, days)
 		if err != nil {
-			ctx.Logger.Error("Failed to get commit history: %v", err)
+			ctx.Logger.Error("Failed to analyze repository: %v", err)
 			return analyzeResultMsg{err: err}
 		}
 
-		// Analyze conventional commit patterns
-		typeCounts := make(map[string]int)
-		authorsCount := make(map[string]int)
-
-		for _, commit := range commits {
-			// Count by author
-			authorsCount[commit.Author]++
-
-			// Check if it follows conventional format
-			if strings.HasPrefix(commit.Message, "feat") ||
-				strings.HasPrefix(commit.Message, "fix") ||
-				strings.HasPrefix(commit.Message, "docs") ||
-				strings.HasPrefix(commit.Message, "style") ||
-				strings.HasPrefix(commit.Message, "refactor") ||
-				strings.HasPrefix(commit.Message, "perf") ||
-				strings.HasPrefix(commit.Message, "test") ||
-				strings.HasPrefix(commit.Message, "build") ||
-				strings.HasPrefix(commit.Message, "ci") ||
-				strings.HasPrefix(commit.Message, "chore") ||
-				strings.HasPrefix(commit.Message, "revert") {
-
-				// Extract type
-				parts := strings.SplitN(commit.Message, ":", 2)
-				typeScope := parts[0]
-
-				if strings.Contains(typeScope, "(") && strings.Contains(typeScope, ")") {
-					// Has scope
-					scopeStart := strings.Index(typeScope, "(")
-					commitType := typeScope[:scopeStart]
-					typeCounts[commitType]++
-				} else {
-					// No scope
-					typeCounts[typeScope]++
-				}
-			} else {
-				// Non-conventional commit
-				typeCounts["other"]++
-			}
-		}
-
-		ctx.Logger.Debug("Found %d different commit types", len(typeCounts))
-		ctx.Logger.Debug("Found %d different authors", len(authorsCount))
-
-		// Return results
+		// Return analysis results
 		return analyzeResultMsg{
-			commitStats:  typeCounts,
-			authorStats:  authorsCount,
-			totalCommits: len(commits),
-			err:          nil,
+			commitStats:         result.CommitStats,
+			authorStats:         result.AuthorStats,
+			totalCommits:        result.TotalCommits,
+			conventionalPercent: result.ConventionalPercent,
+			err:                 nil,
 		}
 	}
 }
 
+// Update handles all incoming messages to update model state
+// Returns updated model and next command(s) to run
+// Implements required method for tea.Model interface
 func (m AnalyzeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle keyboard input
 		m.ctx.Logger.Debug("Key pressed: %s", msg.String())
 		switch msg.String() {
 		case "ctrl+c", "q", "esc":
+			// Quit the application
 			return m, tea.Quit
 		}
 
 	case tea.WindowSizeMsg:
+		// Handle terminal resize events
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
 
-		// Adjust component sizes
-		listHeight := m.height / 3
-		viewportHeight := m.height - listHeight
+		// Calculate and adjust component sizes
+		listHeight := m.height / 3              // Top third for type list
+		viewportHeight := m.height - listHeight // Remaining space for detailed report
 
 		m.list.SetSize(m.width, listHeight)
 		m.viewport.Width = m.width
 		m.viewport.Height = viewportHeight
 
 	case analyzeResultMsg:
+		// Handle analysis results
 		// Stop the spinner when analysis is complete
 		m.spinner.Stop()
+
 		if msg.err != nil {
+			// Handle analysis errors
 			m.ctx.Logger.Error("Analysis failed: %v", msg.err)
 			m.err = msg.err
 			return m, nil
 		}
 
+		// Store analysis results in model
 		m.ctx.Logger.Info("Analysis complete - found %d commits", msg.totalCommits)
 		m.commitStats = msg.commitStats
 		m.authorStats = msg.authorStats
 		m.totalCommits = msg.totalCommits
+		m.conventionalPercent = msg.conventionalPercent
 
-		// Create list items for commit types
+		// Create list items for commit types with percentage calculations
 		var items []list.Item
 		for commitType, count := range m.commitStats {
 			percentage := float64(count) / float64(m.totalCommits) * 100
@@ -209,25 +189,26 @@ func (m AnalyzeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 
-		// Sort by count (descending)
+		// Sort items by count in descending order (most frequent first)
 		sort.Slice(items, func(i, j int) bool {
 			return items[i].(CommitTypeItem).count > items[j].(CommitTypeItem).count
 		})
 
+		// Update the list with sorted items
 		m.list.SetItems(items)
 
-		// Generate detailed report for viewport
-		report := generateDetailedReport(m.totalCommits, m.days, m.commitStats, m.authorStats)
+		// Generate and set detailed report for viewport
+		report := generateDetailedReport(m.totalCommits, m.days, m.commitStats, m.authorStats, m.conventionalPercent)
 		m.viewport.SetContent(report)
 
 	case tickMsg:
-		// Update the spinner
+		// Update the spinner animation during loading
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	}
 
-	// Update components
+	// Update UI components and collect their commands
 	m.list, cmd = m.list.Update(msg)
 	cmds = append(cmds, cmd)
 
@@ -237,20 +218,24 @@ func (m AnalyzeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func generateDetailedReport(totalCommits, days int, commitStats, authorStats map[string]int) string {
+// generateDetailedReport creates a formatted string with detailed repository statistics
+// including commit counts, author contributions, and improvement suggestions
+func generateDetailedReport(totalCommits, days int, commitStats, authorStats map[string]int, conventionalPercent float64) string {
 	var sb strings.Builder
 
+	// Report header and basic stats
 	sb.WriteString(fmt.Sprintf("Repository Analysis (Last %d days)\n", days))
 	sb.WriteString("===============================\n\n")
 	sb.WriteString(fmt.Sprintf("Total Commits: %d\n", totalCommits))
 	sb.WriteString(fmt.Sprintf("Daily Average: %.1f commits\n", float64(totalCommits)/float64(days)))
-	sb.WriteString(fmt.Sprintf("Contributors: %d\n\n", len(authorStats)))
+	sb.WriteString(fmt.Sprintf("Contributors: %d\n", len(authorStats)))
+	sb.WriteString(fmt.Sprintf("Conventional Commits: %.1f%%\n\n", conventionalPercent))
 
-	// Author stats
+	// Section for contributor statistics
 	sb.WriteString("Top Contributors:\n")
 	sb.WriteString("-----------------\n")
 
-	// Convert to slice for sorting
+	// Convert author map to sortable slice
 	type authorCount struct {
 		name  string
 		count int
@@ -261,12 +246,12 @@ func generateDetailedReport(totalCommits, days int, commitStats, authorStats map
 		authors = append(authors, authorCount{author, count})
 	}
 
-	// Sort by count (descending)
+	// Sort authors by commit count (descending)
 	sort.Slice(authors, func(i, j int) bool {
 		return authors[i].count > authors[j].count
 	})
 
-	// Show top 5 authors
+	// Display top 5 contributors with percentages
 	for i, ac := range authors {
 		if i >= 5 {
 			break
@@ -275,19 +260,11 @@ func generateDetailedReport(totalCommits, days int, commitStats, authorStats map
 		sb.WriteString(fmt.Sprintf("%-20s %3d commits (%5.1f%%)\n", ac.name, ac.count, percentage))
 	}
 
-	// Add suggestions
+	// Section for improvement suggestions based on statistics
 	sb.WriteString("\nSuggestions:\n")
 	sb.WriteString("-----------\n")
 
-	conventionalCount := 0
-	for t, count := range commitStats {
-		if t != "other" {
-			conventionalCount += count
-		}
-	}
-
-	conventionalPercent := float64(conventionalCount) / float64(totalCommits) * 100
-
+	// Add suggestions based on analysis results
 	if conventionalPercent < 80 {
 		sb.WriteString("- Consider adopting conventional commits format more consistently\n")
 	}
@@ -299,17 +276,20 @@ func generateDetailedReport(totalCommits, days int, commitStats, authorStats map
 	return sb.String()
 }
 
+// View renders the current UI state as a string
+// Implements required method for tea.Model interface
 func (m AnalyzeModel) View() string {
 	if !m.ready {
-		// Use spinner when loading
+		// Show spinner and loading message when not ready
 		return fmt.Sprintf("%s %s", m.spinner.View(), LoadingMsg)
 	}
 
 	if m.err != nil {
+		// Show error message if analysis failed
 		return RenderErrorMessage(m.err)
 	}
 
-	// Style components
+	// Style components with borders
 	listStyle := InactiveBorderStyle
 	viewportStyle := InactiveBorderStyle
 
@@ -317,10 +297,10 @@ func (m AnalyzeModel) View() string {
 	listView := listStyle.Render(m.list.View())
 	detailView := viewportStyle.Render(m.viewport.View())
 
-	// Help text
+	// Help text shows available keyboard commands
 	helpText := RenderStatusLine([]string{"↑/↓: Navigate", "q: Quit"})
 
-	// Combine components
+	// Combine components vertically
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		listView,
@@ -329,7 +309,8 @@ func (m AnalyzeModel) View() string {
 	)
 }
 
-// RunAnalyzeTUI starts the analyze TUI
+// RunAnalyzeTUI starts the analyze TUI application
+// This is the main entry point for the repository analysis UI
 func RunAnalyzeTUI(ctx *config.AppContext) error {
 	ctx.Logger.Info("Starting analyze TUI")
 

@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/jasonKoogler/comma/internal/tui"
+	// "github.com/jasonKoogler/comma/internal/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -106,15 +106,15 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runConfigTui(cmd *cobra.Command, args []string) error {
-	// Make sure config is loaded before starting the TUI
-	if viper.ConfigFileUsed() == "" {
-		fmt.Println("No configuration file found. Creating default configuration.")
-		if err := viper.SafeWriteConfig(); err != nil {
-			return fmt.Errorf("failed to create default config: %w", err)
-		}
-	}
+// func runConfigTui(cmd *cobra.Command, args []string) error {
+// 	// Make sure config is loaded before starting the TUI
+// 	if viper.ConfigFileUsed() == "" {
+// 		fmt.Println("No configuration file found. Creating default configuration.")
+// 		if err := viper.SafeWriteConfig(); err != nil {
+// 			return fmt.Errorf("failed to create default config: %w", err)
+// 		}
+// 	}
 
-	// Use the TUI package's RunConfigTUI function
-	return tui.RunConfigTUI(appContext)
-}
+// 	// Use the TUI package's RunConfigTUI function
+// 	return tui.RunConfigTUI(appContext)
+// }

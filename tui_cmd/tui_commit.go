@@ -1,4 +1,4 @@
-package cmd
+package tui_cmd
 
 import (
 	"fmt"

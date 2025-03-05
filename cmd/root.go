@@ -3,6 +3,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -29,6 +30,41 @@ It integrates with various LLM providers and is highly customizable.`,
 // Execute executes the root command
 func Execute(ctx *config.AppContext) error {
 	appContext = ctx
+
+	// Ensure appContext uses the same config directory as viper
+	if viper.IsSet("config_dir") {
+		appContext.ConfigDir = viper.GetString("config_dir")
+	} else {
+		// If viper doesn't have config_dir yet, initialize it
+		home, err := os.UserHomeDir()
+		if err == nil {
+			configDir := filepath.Join(home, ".comma")
+			appContext.ConfigDir = configDir
+			viper.Set("config_dir", configDir)
+		}
+	}
+
+	// Add a post-initialization hook to check LLM setup
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		// Skip checks for these commands that don't need LLM
+		skipCommands := map[string]bool{
+			"version": true,
+			"help":    true,
+			"config":  true,
+			"setup":   true,
+		}
+
+		if _, skip := skipCommands[cmd.Name()]; !skip && cmd.Parent() != nil && cmd.Parent().Name() != "config" {
+			// Check if LLM is configured properly
+			provider := viper.GetString("llm.provider")
+			if provider == "" || provider == "none" {
+				fmt.Println("⚠️  LLM provider not configured. Some commands may not work properly.")
+				fmt.Println("   Run 'comma setup' or 'comma config set --provider openai' to configure.")
+			}
+		}
+		return nil
+	}
+
 	return rootCmd.Execute()
 }
 
@@ -51,7 +87,7 @@ func init() {
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(tuiCmd)
+	// rootCmd.AddCommand(tuiCmd)
 	rootCmd.AddCommand(analyzeCmd)
 	rootCmd.AddCommand(enterpriseCmd)
 }
@@ -62,12 +98,27 @@ func initConfig() {
 		// Use config file from the flag
 		viper.SetConfigFile(cfgFile)
 	} else {
-		// Use config from app context
-		viper.SetConfigFile(filepath.Join(appContext.ConfigDir, "config.yaml"))
-	}
+		// Find home directory
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 
-	// Store config directory in viper
-	viper.Set("config_dir", appContext.ConfigDir)
+		// Search config in home directory with name ".comma" (without extension)
+		configDir := filepath.Join(home, ".comma")
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			fmt.Println("Error creating config directory:", err)
+			os.Exit(1)
+		}
+
+		viper.AddConfigPath(configDir)
+		viper.SetConfigName("config")
+		viper.SetConfigType("yaml")
+
+		// Store config directory in viper for other components to use
+		viper.Set("config_dir", configDir)
+	}
 
 	// Set defaults
 	setDefaults()
