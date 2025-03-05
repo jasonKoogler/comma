@@ -9,6 +9,7 @@ import (
 	"github.com/jasonKoogler/comma/internal/audit"
 	"github.com/jasonKoogler/comma/internal/cache"
 	"github.com/jasonKoogler/comma/internal/diff"
+	"github.com/jasonKoogler/comma/internal/logging"
 	"github.com/jasonKoogler/comma/internal/security"
 	"github.com/jasonKoogler/comma/internal/team"
 	"github.com/jasonKoogler/comma/internal/vault"
@@ -23,6 +24,7 @@ type AppContext struct {
 	Cache         *cache.CommitCache
 	CredentialMgr *vault.CredentialManager
 	TeamManager   *team.Manager
+	Logger        logging.Logger
 }
 
 // InitAppContext initializes the global application context
@@ -37,6 +39,12 @@ func InitAppContext(configDir string) (*AppContext, error) {
 		if err := ensureDir(dir); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
+	}
+
+	var logger logging.Logger
+	logger, err := logging.NewFileLogger("comma")
+	if err != nil {
+		logger = logging.NewConsoleLogger()
 	}
 
 	// Initialize components
@@ -71,6 +79,7 @@ func InitAppContext(configDir string) (*AppContext, error) {
 		Cache:         commitCache,
 		CredentialMgr: credMgr,
 		TeamManager:   teamMgr,
+		Logger:        logger,
 	}, nil
 }
 

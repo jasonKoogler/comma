@@ -1,9 +1,6 @@
 package tui
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -53,10 +50,11 @@ func NewCommitModel(ctx *config.AppContext) CommitModel {
 	fileList.SetShowStatusBar(false)
 	fileList.SetFilteringEnabled(false)
 	fileList.SetShowHelp(false)
+	fileList.Styles.Title = TitleStyle
 
 	// Initialize changes viewport
 	changesView := viewport.New(0, 0)
-	changesView.Style = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder())
+	changesView.Style = InactiveBorderStyle
 
 	// Initialize message input
 	msgInput := textinput.New()
@@ -115,15 +113,9 @@ type filesLoadedMsg struct {
 	items []list.Item
 }
 
-type errMsg struct {
-	err error
-}
-
 type suggestionMsg struct {
 	text string
 }
-
-type successMsg struct{}
 
 func (m CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -293,35 +285,25 @@ func (m CommitModel) View() string {
 	}
 
 	if m.err != nil {
-		return fmt.Sprintf("Error: %v\nPress q to quit.", m.err)
+		return RenderErrorMessage(m.err)
 	}
 
 	if m.success {
-		return "✓ Changes committed successfully!\nPress any key to exit."
+		return RenderSuccessMessage("✓ Changes committed successfully!\nPress any key to exit.")
 	}
 
 	// Style depending on whether component is active
-	activeFileStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("62"))
-	inactiveFileStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder())
-
-	activeChangesStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("62"))
-	inactiveChangesStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder())
-
-	activeMessageStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("62"))
-	inactiveMessageStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder())
-
-	// Apply active styles
-	filesView := inactiveFileStyle.Render(m.files.View())
-	changesView := inactiveChangesStyle.Render(m.changes.View())
-	messageView := inactiveMessageStyle.Render(m.message.View())
+	filesView := InactiveBorderStyle.Render(m.files.View())
+	changesView := InactiveBorderStyle.Render(m.changes.View())
+	messageView := InactiveBorderStyle.Render(m.message.View())
 
 	switch m.activeView {
 	case 0:
-		filesView = activeFileStyle.Render(m.files.View())
+		filesView = ActiveBorderStyle.Render(m.files.View())
 	case 1:
-		changesView = activeChangesStyle.Render(m.changes.View())
+		changesView = ActiveBorderStyle.Render(m.changes.View())
 	case 2:
-		messageView = activeMessageStyle.Render(m.message.View())
+		messageView = ActiveBorderStyle.Render(m.message.View())
 	}
 
 	// Layout
@@ -346,10 +328,10 @@ func statusLine(m CommitModel) string {
 			"Enter: Commit",
 			"q: Quit",
 		}
-		status = strings.Join(controls, " • ")
+		status = RenderStatusLine(controls)
 	}
 
-	return lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(status)
+	return status
 }
 
 // RunCommitTUI starts the commit TUI

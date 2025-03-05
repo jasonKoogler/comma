@@ -16,14 +16,13 @@ import (
 
 // AnalyzeModel represents the TUI state for repository analysis
 type AnalyzeModel struct {
-	viewport viewport.Model
-	list     list.Model
-	width    int
-	height   int
-	ready    bool
-	err      error
-	ctx      *config.AppContext
-	// repo         *git.Repository
+	viewport     viewport.Model
+	list         list.Model
+	width        int
+	height       int
+	ready        bool
+	err          error
+	ctx          *config.AppContext
 	days         int
 	commitStats  map[string]int
 	authorStats  map[string]int
@@ -53,7 +52,7 @@ func (i CommitTypeItem) FilterValue() string {
 func NewAnalyzeModel(ctx *config.AppContext) AnalyzeModel {
 	// Initialize viewport for detailed stats
 	detailView := viewport.New(0, 0)
-	detailView.Style = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder())
+	detailView.Style = InactiveBorderStyle
 
 	// Initialize list for commit types
 	typeList := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
@@ -61,6 +60,7 @@ func NewAnalyzeModel(ctx *config.AppContext) AnalyzeModel {
 	typeList.SetShowStatusBar(false)
 	typeList.SetFilteringEnabled(false)
 	typeList.SetShowHelp(false)
+	typeList.Styles.Title = TitleStyle
 
 	return AnalyzeModel{
 		viewport: detailView,
@@ -99,9 +99,6 @@ func analyzeRepository(days int) tea.Cmd {
 		// Analyze conventional commit patterns
 		typeCounts := make(map[string]int)
 		authorsCount := make(map[string]int)
-
-		// Simple regex for conventional commits
-		// conventionalPattern := `^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_-]+\))?:`
 
 		for _, commit := range commits {
 			// Count by author
@@ -283,21 +280,19 @@ func (m AnalyzeModel) View() string {
 	}
 
 	if m.err != nil {
-		return fmt.Sprintf("Error: %v\nPress q to quit.", m.err)
+		return RenderErrorMessage(m.err)
 	}
 
 	// Style components
-	listStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder())
-	viewportStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder())
+	listStyle := InactiveBorderStyle
+	viewportStyle := InactiveBorderStyle
 
 	// Render components
 	listView := listStyle.Render(m.list.View())
 	detailView := viewportStyle.Render(m.viewport.View())
 
 	// Help text
-	helpText := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		Render("↑/↓: Navigate • q: Quit")
+	helpText := RenderStatusLine([]string{"↑/↓: Navigate", "q: Quit"})
 
 	// Combine components
 	return lipgloss.JoinVertical(

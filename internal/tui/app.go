@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jasonKoogler/comma/internal/config"
@@ -30,9 +28,8 @@ type App struct {
 
 // MainScreen represents the initial screen with mode selection
 type MainScreen struct {
-	choices []string
-	cursor  int
-	// selected     bool
+	choices      []string
+	cursor       int
 	width        int
 	height       int
 	titleStyle   lipgloss.Style
@@ -49,11 +46,7 @@ func NewApp(ctx *config.AppContext, initialMode TUIMode) *App {
 			"Analyze Repository",
 			"Exit",
 		},
-		titleStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#7D56F4")).
-			Bold(true).
-			Padding(0, 1),
+		titleStyle: TitleStyle,
 		itemStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FAFAFA")),
 		selectedItem: lipgloss.NewStyle().
@@ -120,8 +113,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Sequence(
 			tea.Quit,
 			func() tea.Msg {
-				// This is a bit of a hack, but it allows us to quit this program
-				// and start the commit TUI
 				go func() {
 					_ = RunCommitTUI(a.ctx)
 				}()
@@ -178,15 +169,12 @@ func (a *App) updateMainScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch a.mainScreen.cursor {
 			case 0: // Generate Commit Message
 				a.mode = ModeCommit
-				// We'll implement initialization for commit mode later
 				return a, nil
 			case 1: // Configure Application
 				a.mode = ModeConfig
-				// We'll implement initialization for config mode later
 				return a, nil
 			case 2: // Analyze Repository
 				a.mode = ModeAnalyze
-				// We'll implement initialization for analyze mode later
 				return a, nil
 			case 3: // Exit
 				return a, tea.Quit
@@ -200,20 +188,17 @@ func (a *App) updateMainScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the current screen
 func (a *App) View() string {
 	if a.err != nil {
-		return fmt.Sprintf("Error: %v\nPress q to quit.", a.err)
+		return RenderErrorMessage(a.err)
 	}
 
 	switch a.mode {
 	case ModeMain:
 		return a.viewMainScreen()
 	case ModeCommit:
-		// We'll implement commit view later
 		return "Commit Mode - Not implemented yet"
 	case ModeConfig:
-		// We'll implement config view later
 		return "Config Mode - Not implemented yet"
 	case ModeAnalyze:
-		// We'll implement analyze view later
 		return "Analyze Mode - Not implemented yet"
 	default:
 		return "Unknown Mode"
@@ -245,8 +230,7 @@ func (a *App) viewMainScreen() string {
 
 	// Add help text
 	helpText := "\nUse arrow keys to navigate, enter to select"
-	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#626262"))
-	help := helpStyle.Render(helpText)
+	help := StatusTextStyle.Render(helpText)
 
 	// Combine all parts
 	content := lipgloss.JoinVertical(lipgloss.Center, title, "", menu, help)
