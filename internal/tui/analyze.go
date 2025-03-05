@@ -27,6 +27,7 @@ type AnalyzeModel struct {
 	commitStats  map[string]int
 	authorStats  map[string]int
 	totalCommits int
+	spinner      SpinnerModel
 }
 
 // CommitTypeItem represents a commit type in the list
@@ -66,12 +67,17 @@ func NewAnalyzeModel(ctx *config.AppContext) AnalyzeModel {
 		viewport: detailView,
 		list:     typeList,
 		days:     30, // Default to 30 days
+		spinner:  NewSpinner(),
 		ctx:      ctx,
 	}
 }
 
 func (m AnalyzeModel) Init() tea.Cmd {
-	return analyzeRepository(m.days)
+	m.ctx.Logger.Info("Initializing analyze model with %d days of history", m.days)
+	return tea.Batch(
+		analyzeRepository(m.ctx, m.days),
+		m.spinner.Start(),
+	)
 }
 
 type analyzeResultMsg struct {
@@ -81,11 +87,14 @@ type analyzeResultMsg struct {
 	err          error
 }
 
-func analyzeRepository(days int) tea.Cmd {
+func analyzeRepository(ctx *config.AppContext, days int) tea.Cmd {
 	return func() tea.Msg {
+		ctx.Logger.Info("Analyzing repository for the last %d days", days)
+
 		// Get git repository
 		repo, err := git.NewRepository(".")
 		if err != nil {
+			ctx.Logger.Error("Failed to initialize repository: %v", err)
 			return analyzeResultMsg{err: err}
 		}
 
@@ -93,6 +102,7 @@ func analyzeRepository(days int) tea.Cmd {
 		since := time.Now().AddDate(0, 0, -days)
 		commits, err := repo.GetCommitHistory(since)
 		if err != nil {
+			ctx.Logger.Error("Failed to get commit history: %v", err)
 			return analyzeResultMsg{err: err}
 		}
 
@@ -136,6 +146,10 @@ func analyzeRepository(days int) tea.Cmd {
 			}
 		}
 
+		ctx.Logger.Debug("Found %d different commit types", len(typeCounts))
+		ctx.Logger.Debug("Found %d different authors", len(authorsCount))
+
+		// Return results
 		return analyzeResultMsg{
 			commitStats:  typeCounts,
 			authorStats:  authorsCount,
@@ -151,6 +165,7 @@ func (m AnalyzeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		m.ctx.Logger.Debug("Key pressed: %s", msg.String())
 		switch msg.String() {
 		case "ctrl+c", "q", "esc":
 			return m, tea.Quit
@@ -170,11 +185,15 @@ func (m AnalyzeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Height = viewportHeight
 
 	case analyzeResultMsg:
+		// Stop the spinner when analysis is complete
+		m.spinner.Stop()
 		if msg.err != nil {
+			m.ctx.Logger.Error("Analysis failed: %v", msg.err)
 			m.err = msg.err
 			return m, nil
 		}
 
+		m.ctx.Logger.Info("Analysis complete - found %d commits", msg.totalCommits)
 		m.commitStats = msg.commitStats
 		m.authorStats = msg.authorStats
 		m.totalCommits = msg.totalCommits
@@ -200,6 +219,12 @@ func (m AnalyzeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Generate detailed report for viewport
 		report := generateDetailedReport(m.totalCommits, m.days, m.commitStats, m.authorStats)
 		m.viewport.SetContent(report)
+
+	case tickMsg:
+		// Update the spinner
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	}
 
 	// Update components
@@ -276,7 +301,8 @@ func generateDetailedReport(totalCommits, days int, commitStats, authorStats map
 
 func (m AnalyzeModel) View() string {
 	if !m.ready {
-		return "Analyzing repository..."
+		// Use spinner when loading
+		return fmt.Sprintf("%s %s", m.spinner.View(), LoadingMsg)
 	}
 
 	if m.err != nil {
@@ -305,8 +331,17 @@ func (m AnalyzeModel) View() string {
 
 // RunAnalyzeTUI starts the analyze TUI
 func RunAnalyzeTUI(ctx *config.AppContext) error {
+	ctx.Logger.Info("Starting analyze TUI")
+
 	model := NewAnalyzeModel(ctx)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()
+
+	if err != nil {
+		ctx.Logger.Error("Analyze TUI exited with error: %v", err)
+	} else {
+		ctx.Logger.Info("Analyze TUI exited successfully")
+	}
+
 	return err
 }

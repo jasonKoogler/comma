@@ -1,6 +1,10 @@
 package tui
 
 import (
+	"context"
+	"errors"
+	"os"
+
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -59,7 +63,7 @@ func NewCommitModel(ctx *config.AppContext) CommitModel {
 	// Initialize message input
 	msgInput := textinput.New()
 	msgInput.Placeholder = "Commit message"
-	msgInput.CharLimit = 100
+	msgInput.CharLimit = DefaultCommitCharLimit
 	msgInput.Width = 80
 
 	return CommitModel{
@@ -75,36 +79,52 @@ func NewCommitModel(ctx *config.AppContext) CommitModel {
 }
 
 func (m CommitModel) Init() tea.Cmd {
+	m.ctx.Logger.Info("Initializing commit model")
 	return tea.Batch(
-		loadFiles,
+		loadFiles(m.ctx),
 		textinput.Blink,
 	)
 }
 
-func loadFiles() tea.Msg {
-	// Load git changes
-	repo, err := git.NewRepository(".")
-	if err != nil {
-		return errMsg{err}
-	}
+func loadFiles(ctx *config.AppContext) tea.Cmd {
+	return func() tea.Msg {
+		ctx.Logger.Debug("Loading git files")
 
-	// Get changes
-	fileChanges, err := repo.GetChangedFiles()
-	if err != nil {
-		return errMsg{err}
-	}
+		// Load git changes
+		repo, err := git.NewRepository(".")
+		if err != nil {
+			ctx.Logger.Error("Failed to initialize repository: %v", err)
+			if os.IsNotExist(err) {
+				return errMsg{ErrNoRepositoryFound}
+			}
+			return errMsg{err}
+		}
 
-	var items []list.Item
-	for _, fc := range fileChanges {
-		items = append(items, FileItem{
-			path:   fc.Path,
-			status: fc.Status,
-		})
-	}
+		// Get changes
+		fileChanges, err := repo.GetChangedFiles()
+		if err != nil {
+			ctx.Logger.Error("Failed to get changed files: %v", err)
+			return errMsg{err}
+		}
 
-	return filesLoadedMsg{
-		repo:  repo,
-		items: items,
+		if len(fileChanges) == 0 {
+			ctx.Logger.Warn("No changes detected in repository")
+			return errMsg{ErrNoChangesDetected}
+		}
+
+		var items []list.Item
+		for _, fc := range fileChanges {
+			items = append(items, FileItem{
+				path:   fc.Path,
+				status: fc.Status,
+			})
+		}
+
+		ctx.Logger.Info("Loaded %d changed files", len(items))
+		return filesLoadedMsg{
+			repo:  repo,
+			items: items,
+		}
 	}
 }
 
@@ -123,6 +143,7 @@ func (m CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		m.ctx.Logger.Debug("Key pressed: %s", msg.String())
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
@@ -135,34 +156,51 @@ func (m CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeView == 2 {
 				// Commit with current message
 				if m.repo != nil && m.message.Value() != "" {
-					err := m.repo.Commit(m.message.Value())
+					m.ctx.Logger.Info("Committing changes with message: %s", m.message.Value())
+
+					// Use WithTimeout to prevent hanging
+					_, err := WithTimeout(APIRequestTimeout, func() (interface{}, error) {
+						return nil, m.repo.Commit(m.message.Value())
+					})
+
 					if err != nil {
-						m.err = err
-					} else {
-						// Show success message and quit
-						m.success = true
-						return m, tea.Sequence(
-							func() tea.Msg { return successMsg{} },
-							tea.Quit,
-						)
+						if errors.Is(err, context.DeadlineExceeded) {
+							m.ctx.Logger.Error("Commit operation timed out")
+							m.err = ErrTimeout
+						} else {
+							m.ctx.Logger.Error("Failed to commit changes: %v", err)
+							m.err = err
+						}
+						return m, nil
 					}
+
+					// Show success message and quit
+					m.ctx.Logger.Info("Successfully committed changes")
+					m.success = true
+					return m, tea.Sequence(
+						func() tea.Msg { return successMsg{} },
+						tea.Quit,
+					)
 				}
 			}
 		}
 
 	case tea.WindowSizeMsg:
+		m.ctx.Logger.Debug("Window resized to %dx%d", msg.Width, msg.Height)
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
 
-		// Adjust component sizes
-		filesHeight := m.height / 3
-		changesHeight := m.height - filesHeight - 3 // 3 for message input
+		// Use LayoutManager to calculate dimensions
+		layout := NewLayoutManager(m.width, m.height)
+		filesWidth, filesHeight := layout.FilesListDimensions()
+		changesWidth, changesHeight := layout.ChangesViewDimensions()
 
-		m.files.SetSize(m.width, filesHeight)
-		m.changes.Width = m.width
+		// Apply dimensions to components
+		m.files.SetSize(filesWidth, filesHeight)
+		m.changes.Width = changesWidth
 		m.changes.Height = changesHeight
-		m.message.Width = m.width - 2
+		m.message.Width = m.width
 
 	case filesLoadedMsg:
 		m.repo = msg.repo
@@ -182,7 +220,7 @@ func (m CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Generate a suggestion based on all changes
-		return m, generateSuggestion(m.repo, m.ctx)
+		return m, generateSuggestion(m.ctx, m.repo)
 
 	case suggestionMsg:
 		m.suggestion = msg.text
@@ -226,10 +264,13 @@ func (m CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func generateSuggestion(repo *git.Repository, ctx *config.AppContext) tea.Cmd {
+func generateSuggestion(ctx *config.AppContext, repo *git.Repository) tea.Cmd {
 	return func() tea.Msg {
+		ctx.Logger.Debug("Generating commit suggestion")
+
 		changes, err := repo.GetStagedChanges()
 		if err != nil {
+			ctx.Logger.Error("Failed to get staged changes: %v", err)
 			return errMsg{err}
 		}
 
@@ -275,6 +316,7 @@ func generateSuggestion(repo *git.Repository, ctx *config.AppContext) tea.Cmd {
 			return errMsg{err}
 		}
 
+		ctx.Logger.Info("Generated commit message successfully")
 		return suggestionMsg{text: message}
 	}
 }

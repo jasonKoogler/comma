@@ -39,6 +39,8 @@ type MainScreen struct {
 
 // NewApp creates a new TUI application
 func NewApp(ctx *config.AppContext, initialMode TUIMode) *App {
+	ctx.Logger.Info("Creating new App with initial mode: %d", initialMode)
+
 	mainScreen := &MainScreen{
 		choices: []string{
 			"Generate Commit Message",
@@ -61,7 +63,7 @@ func NewApp(ctx *config.AppContext, initialMode TUIMode) *App {
 	}
 }
 
-// Init initializes the TUI application
+// Init initializes the application
 func (a *App) Init() tea.Cmd {
 	// Return different commands based on initial mode
 	switch a.mode {
@@ -82,12 +84,15 @@ func (a *App) Init() tea.Cmd {
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		a.ctx.Logger.Debug("Key pressed: %s", msg.String())
 		switch msg.String() {
 		case "ctrl+c", "q":
 			if a.mode == ModeMain {
+				a.ctx.Logger.Info("Exiting application")
 				return a, tea.Quit
 			} else {
 				// Go back to main screen
+				a.ctx.Logger.Info("Returning to main screen")
 				a.mode = ModeMain
 				return a, nil
 			}
@@ -243,6 +248,8 @@ func (a *App) viewMainScreen() string {
 
 // RunTUI starts the TUI application
 func RunTUI(ctx *config.AppContext, mode TUIMode) error {
+	ctx.Logger.Info("Starting TUI with mode: %d", mode)
+
 	// If not in main mode, directly launch the appropriate TUI
 	switch mode {
 	case ModeCommit:
@@ -258,5 +265,12 @@ func RunTUI(ctx *config.AppContext, mode TUIMode) error {
 	p := tea.NewProgram(app, tea.WithAltScreen())
 
 	_, err := p.Run()
+
+	if err != nil {
+		ctx.Logger.Error("TUI exited with error: %v", err)
+	} else {
+		ctx.Logger.Info("TUI exited successfully")
+	}
+
 	return err
 }
