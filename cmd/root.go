@@ -31,19 +31,19 @@ It integrates with various LLM providers and is highly customizable.`,
 func Execute(ctx *config.AppContext) error {
 	appContext = ctx
 
-	// Ensure we have a provider set if we're generating
-	if os.Args[1] == "generate" || os.Args[1] == "gen" || os.Args[1] == "g" {
-		provider := viper.GetString("llm.provider")
-		if provider == "" {
-			// Force set a default provider
-			fmt.Println("Warning: No LLM provider configured, defaulting to OpenAI")
-			viper.Set("llm.provider", "openai")
-			viper.Set("llm.model", "gpt-3.5-turbo")
-			if err := viper.WriteConfig(); err != nil {
-				fmt.Printf("Warning: couldn't save config: %v\n", err)
-			}
-		}
-	}
+	// // Ensure we have a provider set if we're generating
+	// if os.Args[1] == "generate" || os.Args[1] == "gen" || os.Args[1] == "g" {
+	// 	provider := viper.GetString("llm.provider")
+	// 	if provider == "" {
+	// 		// Force set a default provider
+	// 		fmt.Println("Warning: No LLM provider configured, defaulting to OpenAI")
+	// 		viper.Set("llm.provider", "openai")
+	// 		viper.Set("llm.model", "gpt-3.5-turbo")
+	// 		if err := viper.WriteConfig(); err != nil {
+	// 			fmt.Printf("Warning: couldn't save config: %v\n", err)
+	// 		}
+	// 	}
+	// }
 
 	// Ensure appContext uses the same config directory as viper
 	if viper.IsSet("config_dir") {

@@ -110,6 +110,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 	case "anthropic":
 		models = []string{
+			"claude-3.7-sonnet-latest",
 			"claude-3-opus-20240229",
 			"claude-3-sonnet-20240229",
 			"claude-3-haiku-20240307",
