@@ -4,6 +4,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	// "time"
@@ -11,6 +12,7 @@ import (
 	"github.com/jasonKoogler/comma/internal/git"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -23,6 +25,7 @@ var (
 	teamName   string
 	skipScan   bool
 	noCache    bool
+	model      string
 
 	generateCmd = &cobra.Command{
 		Use:     "generate",
@@ -36,6 +39,7 @@ func init() {
 	// Add flags
 	generateCmd.Flags().StringVarP(&template, "template", "t", "", "template for the commit message")
 	generateCmd.Flags().IntVarP(&maxTokens, "max-tokens", "m", 0, "maximum number of tokens for the response")
+	generateCmd.Flags().StringVar(&model, "model", "", "LLM model to use (e.g., gpt-4, claude-3-sonnet)")
 	generateCmd.Flags().BoolVarP(&withDiff, "with-diff", "d", false, "include detailed diff in the prompt")
 	generateCmd.Flags().BoolVarP(&editPrompt, "edit-prompt", "e", false, "edit the prompt before sending to LLM")
 	generateCmd.Flags().BoolVarP(&staged, "staged", "s", true, "only consider staged changes")
@@ -46,17 +50,59 @@ func init() {
 
 	// Bind flags to viper
 	viper.BindPFlag("template", generateCmd.Flags().Lookup("template"))
+	viper.BindPFlag("llm.model", generateCmd.Flags().Lookup("model"))
 	viper.BindPFlag("llm.max_tokens", generateCmd.Flags().Lookup("max-tokens"))
 	viper.BindPFlag("include_diff", generateCmd.Flags().Lookup("with-diff"))
 }
 
 func runGenerate(cmd *cobra.Command, args []string) error {
+	// Add direct file check for configuration
+	home, _ := os.UserHomeDir()
+	configFile := filepath.Join(home, ".comma", "config.yaml")
+
+	if _, err := os.Stat(configFile); err == nil {
+		fmt.Printf("Config file exists at %s\n", configFile)
+
+		// Directly read the YAML file
+		data, err := os.ReadFile(configFile)
+		if err == nil {
+			var config map[string]interface{}
+			if err := yaml.Unmarshal(data, &config); err == nil {
+				if llm, ok := config["llm"].(map[string]interface{}); ok {
+					if provider, ok := llm["provider"].(string); ok && provider != "" {
+						fmt.Printf("Found provider in config file: %s\n", provider)
+						viper.Set("llm.provider", provider)
+
+						if model, ok := llm["model"].(string); ok && model != "" {
+							viper.Set("llm.model", model)
+						}
+
+						if apiKey, ok := llm["api_key"].(string); ok && apiKey != "" {
+							viper.Set("llm.api_key", apiKey)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Force reload config to pick up any recent changes
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Printf("Warning: could not read config file: %v\n", err)
+	}
+
 	// Validate configuration
 	if err := validateConfig(); err != nil {
 		// Make a specific suggestion for setup
 		fmt.Println("Configuration error:", err)
 		fmt.Println("\nSuggestion: Run 'comma setup' to configure your LLM provider and API key.")
 		return nil // Return nil to avoid showing the error again
+	}
+
+	// Check if the model flag was set
+	if model != "" {
+		fmt.Printf("Using specified model: %s\n", model)
+		viper.Set("llm.model", model)
 	}
 
 	// Get git repository info

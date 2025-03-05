@@ -17,7 +17,7 @@ var (
 	configViewCmd = &cobra.Command{
 		Use:   "view",
 		Short: "View current configuration",
-		Run:   runConfigView,
+		RunE:  runConfigView,
 	}
 
 	configSetCmd = &cobra.Command{
@@ -41,7 +41,7 @@ func init() {
 	configSetCmd.Flags().String("model", "", "model name to use (e.g., gpt-4, claude-3-opus)")
 }
 
-func runConfigView(cmd *cobra.Command, args []string) {
+func runConfigView(cmd *cobra.Command, args []string) error {
 	fmt.Println("Current Configuration:")
 	fmt.Println("---------------------")
 	fmt.Printf("Config file: %s\n", viper.ConfigFileUsed())
@@ -53,6 +53,14 @@ func runConfigView(cmd *cobra.Command, args []string) {
 	fmt.Printf("Include Diff: %v\n", viper.GetBool("include_diff"))
 	fmt.Println("\nTemplate:")
 	fmt.Println(viper.GetString("template"))
+
+	fmt.Println("\nAvailable Models:")
+	fmt.Println("----------------")
+	fmt.Println("OpenAI:    gpt-4o, gpt-4-turbo, gpt-4, gpt-3.5-turbo")
+	fmt.Println("Anthropic: claude-3-opus, claude-3-sonnet, claude-3-haiku, claude-3.5-sonnet")
+	fmt.Println("Local:     llama3, llama2, mixtral, mistral, phi3")
+
+	return nil
 }
 
 func runConfigSet(cmd *cobra.Command, args []string) error {

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/manifoldco/promptui"
@@ -10,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+	"gopkg.in/yaml.v3"
 )
 
 var setupCmd = &cobra.Command{
@@ -94,16 +96,36 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Step 3: Select model
+	// Step 3: Select model with comprehensive options
 	var models []string
 
 	switch provider {
 	case "openai":
-		models = []string{"gpt-4", "gpt-4-turbo", "gpt-3.5-turbo"}
+		models = []string{
+			"gpt-4o",
+			"gpt-4-turbo",
+			"gpt-4",
+			"gpt-3.5-turbo",
+			"gpt-3.5-turbo-16k",
+		}
 	case "anthropic":
-		models = []string{"claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"}
+		models = []string{
+			"claude-3-opus-20240229",
+			"claude-3-sonnet-20240229",
+			"claude-3-haiku-20240307",
+			"claude-3.5-sonnet",
+			"claude-3", // Alias for the latest
+			"claude-2",
+		}
 	case "local":
-		models = []string{"llama3", "llama2", "mixtral"}
+		models = []string{
+			"llama3",
+			"llama2",
+			"mixtral",
+			"mistral",
+			"phi3",
+			"custom",
+		}
 	}
 
 	modelPrompt := promptui.Select{
@@ -120,10 +142,48 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	// Save the configuration
 	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("failed to save configuration: %w", err)
+		fmt.Printf("Warning: Error saving configuration: %v\n", err)
+
+		// As a fallback, explicitly save to the default location
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("could not find home directory: %w", err)
+		}
+
+		configDir := filepath.Join(home, ".comma")
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			return fmt.Errorf("failed to create config directory: %w", err)
+		}
+
+		configFile := filepath.Join(configDir, "config.yaml")
+
+		// Create a map with our configuration
+		configData := map[string]interface{}{
+			"llm": map[string]interface{}{
+				"provider": provider,
+				"model":    viper.GetString("llm.model"),
+				"api_key":  viper.GetString("llm.api_key"),
+			},
+		}
+
+		// Convert to YAML
+		yamlData, err := yaml.Marshal(configData)
+		if err != nil {
+			return fmt.Errorf("failed to marshal config data: %w", err)
+		}
+
+		// Write directly to file
+		if err := os.WriteFile(configFile, yamlData, 0644); err != nil {
+			return fmt.Errorf("failed to write config file: %w", err)
+		}
+
+		fmt.Printf("Configuration saved to: %s\n", configFile)
 	}
 
 	fmt.Println("\n✓ Configuration saved successfully!")
-	fmt.Println("You can now use 'comma generate' to create commit messages.")
+	fmt.Println("Provider:", viper.GetString("llm.provider"))
+	fmt.Println("Model:", viper.GetString("llm.model"))
+	fmt.Println("API Key configured:", viper.GetString("llm.api_key") != "")
+	fmt.Println("\nYou can now use 'comma generate' to create commit messages.")
 	return nil
 }

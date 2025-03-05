@@ -6,29 +6,28 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jasonKoogler/comma/internal/analyze"
 	"github.com/jasonKoogler/comma/internal/audit"
 	"github.com/jasonKoogler/comma/internal/cache"
+	"github.com/jasonKoogler/comma/internal/commit"
 	"github.com/jasonKoogler/comma/internal/diff"
 	"github.com/jasonKoogler/comma/internal/logging"
 	"github.com/jasonKoogler/comma/internal/security"
 	"github.com/jasonKoogler/comma/internal/team"
 	"github.com/jasonKoogler/comma/internal/vault"
-	"github.com/jasonKoogler/comma/internal/commit"
-	"github.com/jasonKoogler/comma/internal/analyze"
-	"github.com/jasonKoogler/comma/internal/llm"
 )
 
 // AppContext holds application-wide components and services
 type AppContext struct {
-	ConfigDir     string
-	Renderer      *diff.CodeRenderer
-	Scanner       *security.Scanner
-	AuditLogger   *audit.Logger
-	Cache         *cache.CommitCache
-	CredentialMgr *vault.CredentialManager
-	TeamManager   *team.Manager
-	Logger        logging.Logger
-	CommitService *commit.Service
+	ConfigDir      string
+	Renderer       *diff.CodeRenderer
+	Scanner        *security.Scanner
+	AuditLogger    *audit.Logger
+	Cache          *cache.CommitCache
+	CredentialMgr  *vault.CredentialManager
+	TeamManager    *team.Manager
+	Logger         logging.Logger
+	CommitService  *commit.Service
 	AnalyzeService *analyze.Service
 }
 
@@ -76,30 +75,20 @@ func InitAppContext(configDir string) (*AppContext, error) {
 		return nil, fmt.Errorf("failed to initialize team manager: %w", err)
 	}
 
-	// Initialize LLM client
-	var llmClient *llm.Client
-	llmClient, err = llm.NewClient(credMgr)
-	if err != nil {
-		// Log the error but don't fail initialization
-		logger.Warn("LLM client initialization failed: %v", err)
-		// Create a no-op client instead
-		llmClient = llm.NewNoOpClient()
-	}
-
 	// Initialize services
-	commitService := commit.NewService(llmClient)
+	commitService := commit.NewService(credMgr)
 	analyzeService := analyze.NewService()
 
 	return &AppContext{
-		ConfigDir:     configDir,
-		Renderer:      renderer,
-		Scanner:       scanner,
-		AuditLogger:   auditLogger,
-		Cache:         commitCache,
-		CredentialMgr: credMgr,
-		TeamManager:   teamMgr,
-		Logger:        logger,
-		CommitService: commitService,
+		ConfigDir:      configDir,
+		Renderer:       renderer,
+		Scanner:        scanner,
+		AuditLogger:    auditLogger,
+		Cache:          commitCache,
+		CredentialMgr:  credMgr,
+		TeamManager:    teamMgr,
+		Logger:         logger,
+		CommitService:  commitService,
 		AnalyzeService: analyzeService,
 	}, nil
 }

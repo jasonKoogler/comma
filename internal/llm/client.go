@@ -26,12 +26,18 @@ type Client struct {
 func NewClient(credManager *vault.CredentialManager) (*Client, error) {
 	provider := viper.GetString("llm.provider")
 
+	// Debug output to help diagnose issues
+	fmt.Printf("Initializing LLM client with provider: %s\n", provider)
+
 	// Get API key securely
 	apiKey, err := getSecureAPIKey(provider, credManager)
 	if err != nil {
+		fmt.Printf("Error getting API key: %v\n", err)
 		return nil, fmt.Errorf("configuration error: API key is required for %s provider (set in config or use %s_API_KEY env var)",
 			provider, strings.ToUpper(provider))
 	}
+
+	fmt.Printf("API key found: %v\n", apiKey != "")
 
 	// Set the correct endpoint based on provider
 	endpoint := viper.GetString("llm.endpoint")
@@ -163,5 +169,16 @@ func NewNoOpClient() *Client {
 
 // IsOperational checks if the client can actually make API calls
 func (c *Client) IsOperational() bool {
-	return c.provider != "none" && c.provider != ""
+	// Check if provider is valid
+	if c.provider == "none" || c.provider == "" {
+		return false
+	}
+
+	// For local provider, we don't need an API key
+	if c.provider == "local" {
+		return true
+	}
+
+	// For other providers, we need a valid API key
+	return c.apiKey != ""
 }

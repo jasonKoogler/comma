@@ -31,6 +31,20 @@ It integrates with various LLM providers and is highly customizable.`,
 func Execute(ctx *config.AppContext) error {
 	appContext = ctx
 
+	// Ensure we have a provider set if we're generating
+	if os.Args[1] == "generate" || os.Args[1] == "gen" || os.Args[1] == "g" {
+		provider := viper.GetString("llm.provider")
+		if provider == "" {
+			// Force set a default provider
+			fmt.Println("Warning: No LLM provider configured, defaulting to OpenAI")
+			viper.Set("llm.provider", "openai")
+			viper.Set("llm.model", "gpt-3.5-turbo")
+			if err := viper.WriteConfig(); err != nil {
+				fmt.Printf("Warning: couldn't save config: %v\n", err)
+			}
+		}
+	}
+
 	// Ensure appContext uses the same config directory as viper
 	if viper.IsSet("config_dir") {
 		appContext.ConfigDir = viper.GetString("config_dir")
@@ -76,10 +90,12 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
 	rootCmd.PersistentFlags().StringVar(&llmProvider, "provider", "", "LLM provider to use (openai, anthropic, etc.)")
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "API key for the LLM provider (overrides config)")
+	rootCmd.PersistentFlags().StringVar(&model, "model", "", "LLM model to use (overrides config)")
 
 	// Bind flags to viper
 	viper.BindPFlag("llm.provider", rootCmd.PersistentFlags().Lookup("provider"))
 	viper.BindPFlag("llm.api_key", rootCmd.PersistentFlags().Lookup("api-key"))
+	viper.BindPFlag("llm.model", rootCmd.PersistentFlags().Lookup("model"))
 	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 
 	// Add commands
@@ -94,9 +110,13 @@ func init() {
 
 // initConfig reads in config file and ENV variables if set
 func initConfig() {
+	// Print configuration debugging info
+	fmt.Println("Debug: Initializing configuration")
+
 	if cfgFile != "" {
 		// Use config file from the flag
 		viper.SetConfigFile(cfgFile)
+		fmt.Printf("Debug: Using config file specified by flag: %s\n", cfgFile)
 	} else {
 		// Find home directory
 		home, err := os.UserHomeDir()
@@ -111,6 +131,9 @@ func initConfig() {
 			fmt.Println("Error creating config directory:", err)
 			os.Exit(1)
 		}
+
+		configFile := filepath.Join(configDir, "config.yaml")
+		fmt.Printf("Debug: Using config file: %s\n", configFile)
 
 		viper.AddConfigPath(configDir)
 		viper.SetConfigName("config")
@@ -131,6 +154,7 @@ func initConfig() {
 	// If a config file is found, read it in
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			fmt.Println("Debug: Config file not found, creating a default one")
 			// Config file not found, creating a default one
 			if err := viper.SafeWriteConfig(); err != nil {
 				fmt.Printf("Warning: can't write default config file: %v\n", err)
@@ -139,7 +163,14 @@ func initConfig() {
 			// Config file was found but another error was produced
 			fmt.Printf("Warning: error reading config file: %v\n", err)
 		}
+	} else {
+		fmt.Printf("Debug: Using config file: %s\n", viper.ConfigFileUsed())
 	}
+
+	// Print key config values to debug
+	fmt.Printf("Debug: Config contains provider: %s\n", viper.GetString("llm.provider"))
+	fmt.Printf("Debug: Config contains model: %s\n", viper.GetString("llm.model"))
+	fmt.Printf("Debug: Config has API key: %v\n", viper.GetString("llm.api_key") != "")
 }
 
 // setDefaults sets the default configuration values

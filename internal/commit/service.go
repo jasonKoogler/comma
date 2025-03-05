@@ -7,18 +7,36 @@ import (
 	"fmt"
 	"github.com/spf13/viper"
 	"github.com/jasonKoogler/comma/internal/analysis"
+	"github.com/jasonKoogler/comma/internal/vault"
 )
 
 // Service provides commit-related functionality
 type Service struct {
-	llmClient *llm.Client
-	// other dependencies
+	llmClient         *llm.Client
+	credManager       *vault.CredentialManager
+	clientInitialized bool
+}
+
+// ensureClient ensures the LLM client is initialized
+func (s *Service) ensureClient() error {
+	if s.clientInitialized && s.llmClient != nil {
+		return nil
+	}
+
+	client, err := llm.NewClient(s.credManager)
+	if err != nil {
+		return err
+	}
+	
+	s.llmClient = client
+	s.clientInitialized = true
+	return nil
 }
 
 // GenerateCommitMessage generates a commit message for the given repository
 func (s *Service) GenerateCommitMessage(repo *git.Repository) (string, error) {
-	// Check if LLM client is operational
-	if s.llmClient == nil || !s.llmClient.IsOperational() {
+	// Initialize client if needed - THIS IS KEY
+	if err := s.ensureClient(); err != nil {
 		return "", fmt.Errorf("LLM service is not configured. Please run 'comma setup' to configure a provider")
 	}
 
@@ -79,8 +97,9 @@ func (s *Service) GenerateCommitMessage(repo *git.Repository) (string, error) {
 }
 
 // NewService creates a new commit service
-func NewService(llmClient *llm.Client) *Service {
+func NewService(credManager *vault.CredentialManager) *Service {
 	return &Service{
-		llmClient: llmClient,
+		credManager:       credManager,
+		clientInitialized: false,
 	}
 } 
