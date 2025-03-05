@@ -111,12 +111,12 @@ func init() {
 // initConfig reads in config file and ENV variables if set
 func initConfig() {
 	// Print configuration debugging info
-	fmt.Println("Debug: Initializing configuration")
+	// fmt.Println("Debug: Initializing configuration")
 
 	if cfgFile != "" {
 		// Use config file from the flag
 		viper.SetConfigFile(cfgFile)
-		fmt.Printf("Debug: Using config file specified by flag: %s\n", cfgFile)
+		// fmt.Printf("Debug: Using config file specified by flag: %s\n", cfgFile)
 	} else {
 		// Find home directory
 		home, err := os.UserHomeDir()
@@ -132,8 +132,8 @@ func initConfig() {
 			os.Exit(1)
 		}
 
-		configFile := filepath.Join(configDir, "config.yaml")
-		fmt.Printf("Debug: Using config file: %s\n", configFile)
+		// configFile := filepath.Join(configDir, "config.yaml")
+		// fmt.Printf("Debug: Using config file: %s\n", configFile)
 
 		viper.AddConfigPath(configDir)
 		viper.SetConfigName("config")
@@ -154,7 +154,6 @@ func initConfig() {
 	// If a config file is found, read it in
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			fmt.Println("Debug: Config file not found, creating a default one")
 			// Config file not found, creating a default one
 			if err := viper.SafeWriteConfig(); err != nil {
 				fmt.Printf("Warning: can't write default config file: %v\n", err)
@@ -163,14 +162,7 @@ func initConfig() {
 			// Config file was found but another error was produced
 			fmt.Printf("Warning: error reading config file: %v\n", err)
 		}
-	} else {
-		fmt.Printf("Debug: Using config file: %s\n", viper.ConfigFileUsed())
 	}
-
-	// Print key config values to debug
-	fmt.Printf("Debug: Config contains provider: %s\n", viper.GetString("llm.provider"))
-	fmt.Printf("Debug: Config contains model: %s\n", viper.GetString("llm.model"))
-	fmt.Printf("Debug: Config has API key: %v\n", viper.GetString("llm.api_key") != "")
 }
 
 // setDefaults sets the default configuration values

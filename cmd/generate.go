@@ -61,7 +61,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	configFile := filepath.Join(home, ".comma", "config.yaml")
 
 	if _, err := os.Stat(configFile); err == nil {
-		fmt.Printf("Config file exists at %s\n", configFile)
+		// fmt.Printf("Config file exists at %s\n", configFile)
 
 		// Directly read the YAML file
 		data, err := os.ReadFile(configFile)
@@ -70,7 +70,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			if err := yaml.Unmarshal(data, &config); err == nil {
 				if llm, ok := config["llm"].(map[string]interface{}); ok {
 					if provider, ok := llm["provider"].(string); ok && provider != "" {
-						fmt.Printf("Found provider in config file: %s\n", provider)
+						// Found provider in config file
 						viper.Set("llm.provider", provider)
 
 						if model, ok := llm["model"].(string); ok && model != "" {
