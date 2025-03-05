@@ -84,10 +84,13 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			}
 
 			if apiKey != "" {
-				viper.Set("llm.api_key", apiKey)
-				// Store in the secure credential manager too if available
+				// Only store in credential manager
 				if appContext != nil && appContext.CredentialMgr != nil {
-					_ = appContext.CredentialMgr.Store(provider, apiKey)
+					if err := appContext.CredentialMgr.Store(provider, apiKey); err != nil {
+						fmt.Printf("Warning: Failed to securely store API key: %v\n", err)
+					} else {
+						fmt.Println("API key securely stored in system credentials")
+					}
 				}
 			}
 		} else {
@@ -110,7 +113,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 	case "anthropic":
 		models = []string{
-			"claude-3.7-sonnet-latest",
+			"claude-3-7-sonnet-latest",
 			"claude-3-opus-20240229",
 			"claude-3-sonnet-20240229",
 			"claude-3-haiku-20240307",

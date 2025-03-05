@@ -60,6 +60,12 @@ func runConfigView(cmd *cobra.Command, args []string) error {
 	fmt.Println("Anthropic: claude-3-opus, claude-3-sonnet, claude-3-haiku, claude-3.5-sonnet")
 	fmt.Println("Local:     llama3, llama2, mixtral, mistral, phi3")
 
+	fmt.Println("\nSecurity Note:")
+	fmt.Println("-------------")
+	fmt.Println("For better security, consider using environment variables instead of storing API keys in config:")
+	fmt.Println("- ANTHROPIC_API_KEY   (for Anthropic Claude)")
+	fmt.Println("- OPENAI_API_KEY      (for OpenAI)")
+
 	return nil
 }
 

@@ -32,7 +32,7 @@ require (
 	github.com/muesli/termenv v0.15.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
-	golang.org/x/sync v0.11.0 // indirect
+	golang.org/x/sync v0.12.0 // indirect
 )
 
 require (
@@ -53,9 +53,10 @@ require (
 	github.com/zalando/go-keyring v0.2.6
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
+	golang.org/x/crypto v0.36.0
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9 // indirect
-	golang.org/x/sys v0.30.0 // indirect
-	golang.org/x/text v0.14.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
