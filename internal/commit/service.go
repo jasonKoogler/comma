@@ -2,12 +2,13 @@
 package commit
 
 import (
+	"fmt"
+
+	"github.com/jasonKoogler/comma/internal/analysis"
 	"github.com/jasonKoogler/comma/internal/git"
 	"github.com/jasonKoogler/comma/internal/llm"
-	"fmt"
-	"github.com/spf13/viper"
-	"github.com/jasonKoogler/comma/internal/analysis"
 	"github.com/jasonKoogler/comma/internal/vault"
+	"github.com/spf13/viper"
 )
 
 // Service provides commit-related functionality
@@ -27,7 +28,7 @@ func (s *Service) ensureClient() error {
 	if err != nil {
 		return err
 	}
-	
+
 	s.llmClient = client
 	s.clientInitialized = true
 	return nil
@@ -92,7 +93,7 @@ func (s *Service) GenerateCommitMessage(repo *git.Repository) (string, error) {
 	if maxTokens <= 0 {
 		maxTokens = 500 // Default if not set
 	}
-	
+
 	return s.llmClient.GenerateCommitMessage(prompt, maxTokens)
 }
 
@@ -102,4 +103,4 @@ func NewService(credManager *vault.CredentialManager) *Service {
 		credManager:       credManager,
 		clientInitialized: false,
 	}
-} 
+}
