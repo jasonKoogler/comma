@@ -3,9 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	// "github.com/jasonKoogler/comma/internal/tui"
+	"github.com/jasonKoogler/comma/internal/config"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -42,17 +41,21 @@ func init() {
 }
 
 func runConfigView(cmd *cobra.Command, args []string) error {
+	if appContext == nil || appContext.ConfigManager == nil {
+		return fmt.Errorf("configuration manager not initialized")
+	}
+
 	fmt.Println("Current Configuration:")
 	fmt.Println("---------------------")
-	fmt.Printf("Config file: %s\n", viper.ConfigFileUsed())
-	fmt.Printf("LLM Provider: %s\n", viper.GetString("llm.provider"))
-	fmt.Printf("LLM Model: %s\n", viper.GetString("llm.model"))
-	fmt.Printf("API Endpoint: %s\n", viper.GetString("llm.endpoint"))
-	fmt.Printf("Max Tokens: %d\n", viper.GetInt("llm.max_tokens"))
-	fmt.Printf("Temperature: %.2f\n", viper.GetFloat64("llm.temperature"))
-	fmt.Printf("Include Diff: %v\n", viper.GetBool("include_diff"))
+	fmt.Printf("Config file: %s\n", appContext.ConfigManager.ConfigFile)
+	fmt.Printf("LLM Provider: %s\n", appContext.ConfigManager.GetString(config.LLMProviderKey))
+	fmt.Printf("LLM Model: %s\n", appContext.ConfigManager.GetString(config.LLMModelKey))
+	fmt.Printf("API Endpoint: %s\n", appContext.ConfigManager.GetString(config.LLMEndpointKey))
+	fmt.Printf("Max Tokens: %d\n", appContext.ConfigManager.GetInt(config.LLMMaxTokensKey))
+	fmt.Printf("Temperature: %.2f\n", appContext.ConfigManager.GetFloat64(config.LLMTemperatureKey))
+	fmt.Printf("Include Diff: %v\n", appContext.ConfigManager.GetBool(config.IncludeDiffKey))
 	fmt.Println("\nTemplate:")
-	fmt.Println(viper.GetString("template"))
+	fmt.Println(appContext.ConfigManager.GetString(config.TemplateKey))
 
 	fmt.Println("\nAvailable Models:")
 	fmt.Println("----------------")
@@ -70,46 +73,50 @@ func runConfigView(cmd *cobra.Command, args []string) error {
 }
 
 func runConfigSet(cmd *cobra.Command, args []string) error {
+	if appContext == nil || appContext.ConfigManager == nil {
+		return fmt.Errorf("configuration manager not initialized")
+	}
+
 	modified := false
 
-	// Helper to check if flag is set and update viper
-	updateIfSet := func(flagName, viperKey string) {
+	// Helper to check if flag is set and update config
+	updateIfSet := func(flagName, configKey string) {
 		if cmd.Flags().Changed(flagName) {
 			val, _ := cmd.Flags().GetString(flagName)
-			viper.Set(viperKey, val)
+			appContext.ConfigManager.Set(configKey, val)
 			modified = true
 		}
 	}
 
 	// Update string configs
-	updateIfSet("provider", "llm.provider")
-	updateIfSet("endpoint", "llm.endpoint")
-	updateIfSet("template", "template")
-	updateIfSet("model", "llm.model")
+	updateIfSet("provider", config.LLMProviderKey)
+	updateIfSet("endpoint", config.LLMEndpointKey)
+	updateIfSet("template", config.TemplateKey)
+	updateIfSet("model", config.LLMModelKey)
 
 	// Update bool configs
 	if cmd.Flags().Changed("include-diff") {
 		val, _ := cmd.Flags().GetBool("include-diff")
-		viper.Set("include_diff", val)
+		appContext.ConfigManager.Set(config.IncludeDiffKey, val)
 		modified = true
 	}
 
 	// Update int configs
 	if cmd.Flags().Changed("max-tokens") {
 		val, _ := cmd.Flags().GetInt("max-tokens")
-		viper.Set("llm.max_tokens", val)
+		appContext.ConfigManager.Set(config.LLMMaxTokensKey, val)
 		modified = true
 	}
 
 	// Update float configs
 	if cmd.Flags().Changed("temperature") {
 		val, _ := cmd.Flags().GetFloat64("temperature")
-		viper.Set("llm.temperature", val)
+		appContext.ConfigManager.Set(config.LLMTemperatureKey, val)
 		modified = true
 	}
 
 	if modified {
-		if err := viper.WriteConfig(); err != nil {
+		if err := appContext.ConfigManager.Save(); err != nil {
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 		fmt.Println("✓ Configuration updated successfully!")

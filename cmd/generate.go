@@ -3,16 +3,12 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
-	// "time"
-
+	"github.com/jasonKoogler/comma/internal/config"
 	"github.com/jasonKoogler/comma/internal/git"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -47,47 +43,31 @@ func init() {
 	generateCmd.Flags().BoolVar(&skipScan, "skip-scan", false, "skip security scanning")
 	generateCmd.Flags().BoolVar(&noCache, "no-cache", false, "bypass commit cache")
 
-	// Bind flags to viper
-	viper.BindPFlag("template", generateCmd.Flags().Lookup("template"))
-	viper.BindPFlag("llm.model", generateCmd.Flags().Lookup("model"))
-	viper.BindPFlag("llm.max_tokens", generateCmd.Flags().Lookup("max-tokens"))
-	viper.BindPFlag("include_diff", generateCmd.Flags().Lookup("with-diff"))
+	// Bind flags to viper for temporary overrides
+	viper.BindPFlag(config.TemplateKey, generateCmd.Flags().Lookup("template"))
+	viper.BindPFlag(config.LLMModelKey, generateCmd.Flags().Lookup("model"))
+	viper.BindPFlag(config.LLMMaxTokensKey, generateCmd.Flags().Lookup("max-tokens"))
+	viper.BindPFlag(config.IncludeDiffKey, generateCmd.Flags().Lookup("with-diff"))
 }
 
 func runGenerate(cmd *cobra.Command, args []string) error {
-	// Add direct file check for configuration
-	home, _ := os.UserHomeDir()
-	configFile := filepath.Join(home, ".comma", "config.yaml")
-
-	if _, err := os.Stat(configFile); err == nil {
-		// fmt.Printf("Config file exists at %s\n", configFile)
-
-		// Directly read the YAML file
-		data, err := os.ReadFile(configFile)
-		if err == nil {
-			var config map[string]interface{}
-			if err := yaml.Unmarshal(data, &config); err == nil {
-				if llm, ok := config["llm"].(map[string]interface{}); ok {
-					if provider, ok := llm["provider"].(string); ok && provider != "" {
-						// Found provider in config file
-						viper.Set("llm.provider", provider)
-
-						if model, ok := llm["model"].(string); ok && model != "" {
-							viper.Set("llm.model", model)
-						}
-
-						if apiKey, ok := llm["api_key"].(string); ok && apiKey != "" {
-							viper.Set("llm.api_key", apiKey)
-						}
-					}
-				}
-			}
-		}
+	if appContext == nil || appContext.ConfigManager == nil {
+		return fmt.Errorf("configuration manager not initialized")
 	}
 
-	// Force reload config to pick up any recent changes
-	if err := viper.ReadInConfig(); err != nil {
-		fmt.Printf("Warning: could not read config file: %v\n", err)
+	// Apply temporary overrides from flags to the config manager
+	// These won't be saved to disk
+	if cmd.Flags().Changed("template") {
+		appContext.ConfigManager.Set(config.TemplateKey, template)
+	}
+	if cmd.Flags().Changed("max-tokens") {
+		appContext.ConfigManager.Set(config.LLMMaxTokensKey, maxTokens)
+	}
+	if cmd.Flags().Changed("model") {
+		appContext.ConfigManager.Set(config.LLMModelKey, model)
+	}
+	if cmd.Flags().Changed("with-diff") {
+		appContext.ConfigManager.Set(config.IncludeDiffKey, withDiff)
 	}
 
 	// Validate configuration
@@ -101,7 +81,6 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	// Check if the model flag was set
 	if model != "" {
 		fmt.Printf("Using specified model: %s\n", model)
-		viper.Set("llm.model", model)
 	}
 
 	// Get git repository info
@@ -153,16 +132,16 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 }
 
 // countLines counts lines in text that start with a prefix
-func countLines(text, prefix string) int {
-	count := 0
-	lines := strings.Split(text, "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, prefix) {
-			count++
-		}
-	}
-	return count
-}
+// func countLines(text, prefix string) int {
+// 	count := 0
+// 	lines := strings.Split(text, "\n")
+// 	for _, line := range lines {
+// 		if strings.HasPrefix(line, prefix) {
+// 			count++
+// 		}
+// 	}
+// 	return count
+// }
 
 // Helper function to prompt for yes/no
 func promptYesNo(question string) (bool, error) {
@@ -177,7 +156,7 @@ func promptYesNo(question string) (bool, error) {
 
 // validateConfig checks if the configuration is valid
 func validateConfig() error {
-	provider := viper.GetString("llm.provider")
+	provider := appContext.ConfigManager.GetString(config.LLMProviderKey)
 	if provider == "" {
 		return fmt.Errorf("LLM provider is not set - run 'comma setup' first")
 	}
@@ -191,15 +170,12 @@ func validateConfig() error {
 		return nil
 	}
 
-	// Check for API key in various places
-	apiKey := viper.GetString("llm.api_key")
-	if apiKey == "" {
-		// Check environment variable
-		envKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(provider))
-		if os.Getenv(envKey) == "" {
-			return fmt.Errorf("API key is required for %s provider. Set it with 'comma config set --api-key YOUR_KEY' or use the %s environment variable",
-				provider, envKey)
-		}
+	// Check for API key using the AppContext's GetAPIKey method
+	apiKey, err := appContext.GetAPIKey(provider)
+	if err != nil || apiKey == "" {
+		envKey := config.GetProviderAPIEnvVar(provider)
+		return fmt.Errorf("API key is required for %s provider. Set it with 'comma config set --api-key YOUR_KEY' or use the %s environment variable",
+			provider, envKey)
 	}
 
 	return nil
