@@ -38,7 +38,7 @@ func main() {
 	// Pass version to command executor
 	cmd.SetVersion(version)
 
-	// Execute the root command
+	// Execute the root command with the app context
 	if err := cmd.Execute(appCtx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

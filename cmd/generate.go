@@ -25,7 +25,6 @@ var (
 	teamName   string
 	skipScan   bool
 	noCache    bool
-	model      string
 
 	generateCmd = &cobra.Command{
 		Use:     "generate",

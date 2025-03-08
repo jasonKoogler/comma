@@ -20,6 +20,7 @@ import (
 // AppContext holds application-wide components and services
 type AppContext struct {
 	ConfigDir      string
+	ConfigManager  *Manager
 	Renderer       *diff.CodeRenderer
 	Scanner        *security.Scanner
 	AuditLogger    *audit.Logger
@@ -33,6 +34,17 @@ type AppContext struct {
 
 // InitAppContext initializes the global application context
 func InitAppContext(configDir string) (*AppContext, error) {
+	// Initialize config manager first
+	configManager, err := NewManager(configDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create config manager: %w", err)
+	}
+
+	// Initialize configuration
+	if err := configManager.Initialize(); err != nil {
+		return nil, fmt.Errorf("failed to initialize configuration: %w", err)
+	}
+
 	// Create subdirectories
 	cacheDir := filepath.Join(configDir, "cache")
 	auditDir := filepath.Join(configDir, "audit")
@@ -45,8 +57,9 @@ func InitAppContext(configDir string) (*AppContext, error) {
 		}
 	}
 
+	// Initialize logger
 	var logger logging.Logger
-	logger, err := logging.NewFileLogger("comma")
+	logger, err = logging.NewFileLogger("comma")
 	if err != nil {
 		logger = logging.NewConsoleLogger()
 	}
@@ -81,6 +94,7 @@ func InitAppContext(configDir string) (*AppContext, error) {
 
 	return &AppContext{
 		ConfigDir:      configDir,
+		ConfigManager:  configManager,
 		Renderer:       renderer,
 		Scanner:        scanner,
 		AuditLogger:    auditLogger,
@@ -96,4 +110,19 @@ func InitAppContext(configDir string) (*AppContext, error) {
 // ensureDir creates a directory if it doesn't exist
 func ensureDir(path string) error {
 	return os.MkdirAll(path, 0755)
+}
+
+// GetAPIKey retrieves an API key with proper precedence:
+// 1. Command-line argument
+// 2. Environment variable
+// 3. Credential store
+func (app *AppContext) GetAPIKey(provider string) (string, error) {
+	// First check config and environment (handled by ConfigManager)
+	apiKey, err := app.ConfigManager.GetAPIKey(provider)
+	if err == nil && apiKey != "" {
+		return apiKey, nil
+	}
+
+	// Then try credential manager
+	return app.CredentialMgr.Retrieve(provider)
 }
