@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jasonKoogler/comma/internal/commit"
 	"github.com/jasonKoogler/comma/internal/config"
 	"github.com/jasonKoogler/comma/internal/git"
 	"github.com/spf13/cobra"
@@ -102,8 +103,14 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("Generating commit message...")
 
+	// Get the commit service from the app context
+	commitService, ok := appContext.CommitService.(*commit.Service)
+	if !ok {
+		return fmt.Errorf("commit service not initialized properly")
+	}
+
 	// Use the commit service to generate a message
-	message, err := appContext.CommitService.GenerateCommitMessage(repo)
+	message, err := commitService.GenerateCommitMessage(repo)
 	if err != nil {
 		return fmt.Errorf("failed to generate commit message: %w", err)
 	}

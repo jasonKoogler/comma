@@ -8,33 +8,56 @@ import (
 	"time"
 
 	"github.com/jasonKoogler/comma/internal/vault"
-	"github.com/spf13/viper"
+)
+
+// ConfigProvider is an interface for accessing configuration
+type ConfigProvider interface {
+	GetString(key string) string
+	GetFloat64(key string) float64
+	GetBool(key string) bool
+	GetInt(key string) int
+	Set(key string, value interface{})
+}
+
+// Constants for configuration keys
+const (
+	LLMProviderKey            = "llm.provider"
+	LLMEndpointKey            = "llm.endpoint"
+	LLMModelKey               = "llm.model"
+	LLMAPIKeyKey              = "llm.api_key"
+	LLMTemperatureKey         = "llm.temperature"
+	LLMMaxTokensKey           = "llm.max_tokens"
+	ConfigDirKey              = "config_dir"
+	TemplateKey               = "template"
+	IncludeDiffKey            = "include_diff"
+	AnalysisSmartDetectionKey = "analysis.enable_smart_detection"
 )
 
 // Client represents an LLM API client
 type Client struct {
-	provider    string
-	apiKey      string
-	endpoint    string
-	model       string
-	temperature float64
-	rateLimiter *time.Ticker
-	credManager *vault.CredentialManager
+	provider       string
+	apiKey         string
+	endpoint       string
+	model          string
+	temperature    float64
+	rateLimiter    *time.Ticker
+	credManager    *vault.CredentialManager
+	configProvider ConfigProvider
 }
 
 // NewClient creates a new LLM client
-func NewClient(credManager *vault.CredentialManager) (*Client, error) {
-	provider := viper.GetString("llm.provider")
+func NewClient(credManager *vault.CredentialManager, configProvider ConfigProvider) (*Client, error) {
+	provider := configProvider.GetString(LLMProviderKey)
 
 	// Get API key securely
-	apiKey, err := getSecureAPIKey(provider, credManager)
+	apiKey, err := getSecureAPIKey(provider, credManager, configProvider)
 	if err != nil {
 		return nil, fmt.Errorf("configuration error: API key is required for %s provider (set in config or use %s_API_KEY env var)",
 			provider, strings.ToUpper(provider))
 	}
 
 	// Set the correct endpoint based on provider
-	endpoint := viper.GetString("llm.endpoint")
+	endpoint := configProvider.GetString(LLMEndpointKey)
 	// Always update endpoint when provider changes to ensure proper defaults
 
 	// Always ensure the endpoint matches the provider
@@ -42,29 +65,22 @@ func NewClient(credManager *vault.CredentialManager) (*Client, error) {
 	case "anthropic":
 		if !strings.Contains(endpoint, "anthropic.com") {
 			endpoint = "https://api.anthropic.com/v1/messages"
-			viper.Set("llm.endpoint", endpoint)
+			configProvider.Set(LLMEndpointKey, endpoint)
 		}
 	case "openai":
 		if !strings.Contains(endpoint, "openai.com") {
 			endpoint = "https://api.openai.com/v1/chat/completions"
-			viper.Set("llm.endpoint", endpoint)
+			configProvider.Set(LLMEndpointKey, endpoint)
 		}
 	case "mistral":
 		if !strings.Contains(endpoint, "mistral.ai") {
 			endpoint = "https://api.mistral.ai/v1/chat/completions"
-			viper.Set("llm.endpoint", endpoint)
+			configProvider.Set(LLMEndpointKey, endpoint)
 		}
 	case "google":
 		if !strings.Contains(endpoint, "googleapis.com") {
 			endpoint = "https://generativelanguage.googleapis.com/v1beta/models"
-			viper.Set("llm.endpoint", endpoint)
-		}
-	}
-
-	// Make sure to write the updated config to disk
-	if viper.ConfigFileUsed() != "" {
-		if err := viper.WriteConfig(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to save updated configuration: %v\n", err)
+			configProvider.Set(LLMEndpointKey, endpoint)
 		}
 	}
 
@@ -72,26 +88,32 @@ func NewClient(credManager *vault.CredentialManager) (*Client, error) {
 	rateLimiter := time.NewTicker(time.Second)
 
 	return &Client{
-		provider:    provider,
-		apiKey:      apiKey,
-		endpoint:    endpoint,
-		model:       viper.GetString("llm.model"),
-		temperature: viper.GetFloat64("llm.temperature"),
-		rateLimiter: rateLimiter,
-		credManager: credManager,
+		provider:       provider,
+		apiKey:         apiKey,
+		endpoint:       endpoint,
+		model:          configProvider.GetString(LLMModelKey),
+		temperature:    configProvider.GetFloat64(LLMTemperatureKey),
+		rateLimiter:    rateLimiter,
+		credManager:    credManager,
+		configProvider: configProvider,
 	}, nil
 }
 
+// getProviderAPIEnvVar returns the environment variable name for a given provider
+func getProviderAPIEnvVar(provider string) string {
+	return fmt.Sprintf("%s_API_KEY", strings.ToUpper(provider))
+}
+
 // getSecureAPIKey tries to get API key from secure storage
-func getSecureAPIKey(provider string, credManager *vault.CredentialManager) (string, error) {
+func getSecureAPIKey(provider string, credManager *vault.CredentialManager, configProvider ConfigProvider) (string, error) {
 	// First try to get from vault
 	apiKey, err := credManager.Retrieve(provider)
 	if err == nil && apiKey != "" {
 		return apiKey, nil
 	}
 
-	// Check if the API key is set in viper under api_keys.provider
-	apiKey = viper.GetString(fmt.Sprintf("api_keys.%s", provider))
+	// Check if the API key is set in config under api_keys.provider
+	apiKey = configProvider.GetString(fmt.Sprintf("api_keys.%s", provider))
 	if apiKey != "" && apiKey != "set" {
 		// Save to vault for future use
 		credManager.Store(provider, apiKey)
@@ -99,7 +121,7 @@ func getSecureAPIKey(provider string, credManager *vault.CredentialManager) (str
 	}
 
 	// Fall back to llm.api_key
-	apiKey = viper.GetString("llm.api_key")
+	apiKey = configProvider.GetString(LLMAPIKeyKey)
 	if apiKey != "" {
 		// Save to vault for future use
 		credManager.Store(provider, apiKey)
@@ -107,7 +129,7 @@ func getSecureAPIKey(provider string, credManager *vault.CredentialManager) (str
 	}
 
 	// Try standard env vars (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
-	envVar := fmt.Sprintf("%s_API_KEY", strings.ToUpper(provider))
+	envVar := getProviderAPIEnvVar(provider)
 	apiKey = getEnv(envVar, "")
 	if apiKey != "" {
 		// Save to vault for future use
@@ -135,7 +157,7 @@ func (c *Client) GenerateCommitMessage(prompt string, maxTokens int) (string, er
 	case "anthropic":
 		return c.generateWithAnthropic(prompt, maxTokens)
 	case "local":
-		localModel, err := NewLocalModel(viper.GetString("config_dir"))
+		localModel, err := NewLocalModel(c.configProvider.GetString(ConfigDirKey))
 		if err != nil {
 			return "", err
 		}
