@@ -61,7 +61,14 @@ func (c *Client) generateWithAnthropic(prompt string, maxTokens int) (string, er
 		}
 
 		if resp != nil {
+			bodyBytes, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
+
+			// Print detailed error for debugging
+			if resp.StatusCode != http.StatusOK {
+				fmt.Printf("Anthropic API error (attempt %d/%d): Status %d, Body: %s\n",
+					i+1, maxRetries, resp.StatusCode, string(bodyBytes))
+			}
 		}
 
 		if i < maxRetries-1 {
@@ -84,21 +91,37 @@ func (c *Client) generateWithAnthropic(prompt string, maxTokens int) (string, er
 
 	// Parse response
 	var response struct {
+		ID      string `json:"id"`
+		Type    string `json:"type"`
+		Role    string `json:"role"`
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Error struct {
+		Model        string `json:"model"`
+		StopReason   string `json:"stop_reason"`
+		StopSequence string `json:"stop_sequence"`
+		Usage        struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
+		Error *struct {
+			Type    string `json:"type"`
 			Message string `json:"message"`
-		} `json:"error"`
+		} `json:"error,omitempty"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w, body: %s", err, string(bodyBytes))
 	}
 
 	// Check for API error
-	if response.Error.Message != "" {
+	if response.Error != nil && response.Error.Message != "" {
 		return "", fmt.Errorf("API error: %s", response.Error.Message)
 	}
 

@@ -3,15 +3,12 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
+	"github.com/jasonKoogler/comma/internal/config"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
-	"gopkg.in/yaml.v3"
 )
 
 var setupCmd = &cobra.Command{
@@ -26,6 +23,10 @@ func init() {
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
+	if appContext == nil || appContext.ConfigManager == nil {
+		return fmt.Errorf("configuration manager not initialized")
+	}
+
 	fmt.Println("Welcome to Comma setup!")
 	fmt.Println("Let's configure your environment.")
 	fmt.Println()
@@ -51,11 +52,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		provider = "local"
 	}
 
-	viper.Set("llm.provider", provider)
+	appContext.ConfigManager.Set(config.LLMProviderKey, provider)
 
 	// Step 2: Set API key (unless local)
 	if provider != "local" {
-		envVar := strings.ToUpper(provider) + "_API_KEY"
+		envVar := config.GetProviderAPIEnvVar(provider)
 
 		// Check if environment variable is set
 		envKey := os.Getenv(envVar)
@@ -85,7 +86,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 			if apiKey != "" {
 				// Only store in credential manager
-				if appContext != nil && appContext.CredentialMgr != nil {
+				if appContext.CredentialMgr != nil {
 					if err := appContext.CredentialMgr.Store(provider, apiKey); err != nil {
 						fmt.Printf("Warning: Failed to securely store API key: %v\n", err)
 					} else {
@@ -100,37 +101,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 3: Select model with comprehensive options
-	var models []string
-
-	switch provider {
-	case "openai":
-		models = []string{
-			"gpt-4o",
-			"gpt-4-turbo",
-			"gpt-4",
-			"gpt-3.5-turbo",
-			"gpt-3.5-turbo-16k",
-		}
-	case "anthropic":
-		models = []string{
-			"claude-3-7-sonnet-latest",
-			"claude-3-opus-20240229",
-			"claude-3-sonnet-20240229",
-			"claude-3-haiku-20240307",
-			"claude-3.5-sonnet",
-			"claude-3", // Alias for the latest
-			"claude-2",
-		}
-	case "local":
-		models = []string{
-			"llama3",
-			"llama2",
-			"mixtral",
-			"mistral",
-			"phi3",
-			"custom",
-		}
-	}
+	models := config.ModelOptions(provider)
 
 	modelPrompt := promptui.Select{
 		Label: "Select model",
@@ -142,52 +113,21 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("prompt failed: %w", err)
 	}
 
-	viper.Set("llm.model", models[modelIdx])
+	appContext.ConfigManager.Set(config.LLMModelKey, models[modelIdx])
 
 	// Save the configuration
-	if err := viper.WriteConfig(); err != nil {
-		fmt.Printf("Warning: Error saving configuration: %v\n", err)
-
-		// As a fallback, explicitly save to the default location
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("could not find home directory: %w", err)
-		}
-
-		configDir := filepath.Join(home, ".comma")
-		if err := os.MkdirAll(configDir, 0755); err != nil {
-			return fmt.Errorf("failed to create config directory: %w", err)
-		}
-
-		configFile := filepath.Join(configDir, "config.yaml")
-
-		// Create a map with our configuration
-		configData := map[string]interface{}{
-			"llm": map[string]interface{}{
-				"provider": provider,
-				"model":    viper.GetString("llm.model"),
-				"api_key":  viper.GetString("llm.api_key"),
-			},
-		}
-
-		// Convert to YAML
-		yamlData, err := yaml.Marshal(configData)
-		if err != nil {
-			return fmt.Errorf("failed to marshal config data: %w", err)
-		}
-
-		// Write directly to file
-		if err := os.WriteFile(configFile, yamlData, 0644); err != nil {
-			return fmt.Errorf("failed to write config file: %w", err)
-		}
-
-		fmt.Printf("Configuration saved to: %s\n", configFile)
+	if err := appContext.ConfigManager.Save(); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
 	fmt.Println("\n✓ Configuration saved successfully!")
-	fmt.Println("Provider:", viper.GetString("llm.provider"))
-	fmt.Println("Model:", viper.GetString("llm.model"))
-	fmt.Println("API Key configured:", viper.GetString("llm.api_key") != "")
+	fmt.Println("Provider:", appContext.ConfigManager.GetString(config.LLMProviderKey))
+	fmt.Println("Model:", appContext.ConfigManager.GetString(config.LLMModelKey))
+
+	// Check if API key is configured
+	apiKey, _ := appContext.GetAPIKey(provider)
+	fmt.Println("API Key configured:", apiKey != "")
+
 	fmt.Println("\nYou can now use 'comma generate' to create commit messages.")
 	return nil
 }

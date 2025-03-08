@@ -8,13 +8,13 @@ import (
 	"github.com/jasonKoogler/comma/internal/git"
 	"github.com/jasonKoogler/comma/internal/llm"
 	"github.com/jasonKoogler/comma/internal/vault"
-	"github.com/spf13/viper"
 )
 
 // Service provides commit-related functionality
 type Service struct {
 	llmClient         *llm.Client
 	credManager       *vault.CredentialManager
+	configProvider    llm.ConfigProvider
 	clientInitialized bool
 }
 
@@ -24,7 +24,7 @@ func (s *Service) ensureClient() error {
 		return nil
 	}
 
-	client, err := llm.NewClient(s.credManager)
+	client, err := llm.NewClient(s.credManager, s.configProvider)
 	if err != nil {
 		return err
 	}
@@ -59,11 +59,11 @@ func (s *Service) GenerateCommitMessage(repo *git.Repository) (string, error) {
 	}
 
 	// Get prompt template from config
-	tmplText := viper.GetString("template")
+	tmplText := s.configProvider.GetString(llm.TemplateKey)
 
 	// Optional: Detect commit type if smart detection is enabled
 	var commitType, commitScope string
-	if viper.GetBool("analysis.enable_smart_detection") {
+	if s.configProvider.GetBool(llm.AnalysisSmartDetectionKey) {
 		// Get file list for analysis
 		changedFiles, _ := repo.GetChangedFiles()
 		filePaths := make([]string, len(changedFiles))
@@ -85,11 +85,11 @@ func (s *Service) GenerateCommitMessage(repo *git.Repository) (string, error) {
 	}
 
 	// Prepare prompt with proper template and detected type/scope
-	withDiff := viper.GetBool("include_diff")
+	withDiff := s.configProvider.GetBool(llm.IncludeDiffKey)
 	prompt := llm.PreparePrompt(tmplText, changes, withDiff, context, commitType, commitScope)
 
 	// Generate commit message using LLM
-	maxTokens := viper.GetInt("llm.max_tokens")
+	maxTokens := s.configProvider.GetInt(llm.LLMMaxTokensKey)
 	if maxTokens <= 0 {
 		maxTokens = 500 // Default if not set
 	}
@@ -98,9 +98,10 @@ func (s *Service) GenerateCommitMessage(repo *git.Repository) (string, error) {
 }
 
 // NewService creates a new commit service
-func NewService(credManager *vault.CredentialManager) *Service {
+func NewService(credManager *vault.CredentialManager, configProvider llm.ConfigProvider) *Service {
 	return &Service{
 		credManager:       credManager,
+		configProvider:    configProvider,
 		clientInitialized: false,
 	}
 }

@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jasonKoogler/comma/internal/config"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // Version information - will be set by main.go
@@ -25,6 +25,12 @@ var versionCmd = &cobra.Command{
 }
 
 func printFeatures() {
+	// Check if appContext is initialized
+	if appContext == nil || appContext.ConfigManager == nil {
+		fmt.Println("\nWarning: Configuration manager not initialized, feature status may be inaccurate.")
+		return
+	}
+
 	// Print enabled features
 	fmt.Println("\nEnabled Features:")
 
@@ -33,13 +39,13 @@ func printFeatures() {
 		name    string
 		enabled bool
 	}{
-		{"Smart Commit Detection", viper.GetBool("analysis.enable_smart_detection")},
-		{"Security Scanning", viper.GetBool("security.scan_for_sensitive_data")},
-		{"Syntax Highlighting", viper.GetBool("ui.syntax_highlight")},
-		{"Commit Caching", viper.GetBool("cache.enabled")},
-		{"Audit Logging", viper.GetBool("security.enable_audit_logging")},
-		{"Team Integration", viper.GetBool("team.enabled")},
-		{"Local Model Fallback", viper.GetBool("llm.use_local_fallback")},
+		{"Smart Commit Detection", appContext.ConfigManager.GetBool(config.AnalysisSmartDetectionKey)},
+		{"Security Scanning", appContext.ConfigManager.GetBool(config.SecurityScanSensitiveDataKey)},
+		{"Syntax Highlighting", appContext.ConfigManager.GetBool(config.UISyntaxHighlightKey)},
+		{"Commit Caching", appContext.ConfigManager.GetBool(config.CacheEnabledKey)},
+		{"Audit Logging", appContext.ConfigManager.GetBool(config.SecurityAuditLoggingKey)},
+		{"Team Integration", appContext.ConfigManager.GetBool(config.TeamEnabledKey)},
+		{"Local Model Fallback", appContext.ConfigManager.GetBool(config.LLMLocalFallbackKey)},
 	}
 
 	for _, f := range features {

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/jasonKoogler/comma/cmd"
+	"github.com/jasonKoogler/comma/internal/commit"
 	"github.com/jasonKoogler/comma/internal/config"
 	"github.com/mitchellh/go-homedir"
 )
@@ -35,10 +36,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize the commit service
+	appCtx.CommitService = commit.NewService(appCtx.CredentialMgr, appCtx)
+
 	// Pass version to command executor
 	cmd.SetVersion(version)
 
-	// Execute the root command
+	// Execute the root command with the app context
 	if err := cmd.Execute(appCtx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

@@ -27,12 +27,24 @@ func init() {
 }
 
 func runAnalyze(cmd *cobra.Command, args []string) error {
+	if appContext == nil || appContext.ConfigManager == nil {
+		return fmt.Errorf("configuration manager not initialized")
+	}
+
 	fmt.Println("Analyzing repository commit patterns...")
 
 	// Get git repository
 	repo, err := git.NewRepository(".")
 	if err != nil {
 		return fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Apply any temporary overrides from flags
+	if cmd.Flags().Changed("days") {
+		appContext.ConfigManager.Set("analysis.days", daysToAnalyze)
+	}
+	if cmd.Flags().Changed("export") {
+		appContext.ConfigManager.Set("analysis.export_format", exportFormat)
 	}
 
 	// Use the analyze service to analyze the repository

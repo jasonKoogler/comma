@@ -48,21 +48,21 @@ build-all: build-linux build-windows build-macos
 build-linux:
 	@echo "Building for Linux..."
 	@mkdir -p $(BIN_DIR)
-	@GOOS=linux GOARCH=amd64 $(GOBUILD) $(BUILD_FLAGS) -o $(BIN_DIR)/$(APP_NAME)-linux-amd64 $(MAIN_PATH)
+	@GOOS=linux GOARCH=amd64 $(GOBUILD) $(BUILD_FLAGS) -o $(BIN_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64 $(MAIN_PATH)
 	@echo "Linux build complete"
 
 .PHONY: build-windows
 build-windows:
 	@echo "Building for Windows..."
 	@mkdir -p $(BIN_DIR)
-	@GOOS=windows GOARCH=amd64 $(GOBUILD) $(BUILD_FLAGS) -o $(BIN_DIR)/$(APP_NAME)-windows-amd64.exe $(MAIN_PATH)
+	@GOOS=windows GOARCH=amd64 $(GOBUILD) $(BUILD_FLAGS) -o $(BIN_DIR)/$(APP_NAME)-$(VERSION)-windows-amd64.exe $(MAIN_PATH)
 	@echo "Windows build complete"
 
 .PHONY: build-macos
 build-macos:
 	@echo "Building for macOS..."
 	@mkdir -p $(BIN_DIR)
-	@GOOS=darwin GOARCH=amd64 $(GOBUILD) $(BUILD_FLAGS) -o $(BIN_DIR)/$(APP_NAME)-macos-amd64 $(MAIN_PATH)
+	@GOOS=darwin GOARCH=amd64 $(GOBUILD) $(BUILD_FLAGS) -o $(BIN_DIR)/$(APP_NAME)-$(VERSION)-macos-amd64 $(MAIN_PATH)
 	@echo "macOS build complete"
 
 # Install the application locally
@@ -141,7 +141,9 @@ release:
 	fi
 	@git tag -a $(VERSION) -m "Release $(VERSION)"
 	@git push origin $(VERSION)
-	@echo "Release $(VERSION) created successfully!"
+	@echo "Building release binaries for $(VERSION)..."
+	@make build-all VERSION=$(VERSION)
+	@echo "Release $(VERSION) created and built successfully!"
 
 # Show help
 .PHONY: help

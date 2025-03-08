@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/jasonKoogler/comma/internal/config"
 	"github.com/jasonKoogler/comma/internal/team"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -58,6 +58,10 @@ func init() {
 }
 
 func runAudit(cmd *cobra.Command, args []string) error {
+	if appContext == nil || appContext.ConfigManager == nil {
+		return fmt.Errorf("configuration manager not initialized")
+	}
+
 	days, _ := cmd.Flags().GetInt("days")
 
 	// Generate usage report
@@ -81,6 +85,10 @@ func runAudit(cmd *cobra.Command, args []string) error {
 }
 
 func runTeamCreate(cmd *cobra.Command, args []string) error {
+	if appContext == nil || appContext.ConfigManager == nil {
+		return fmt.Errorf("configuration manager not initialized")
+	}
+
 	name, _ := cmd.Flags().GetString("name")
 	description, _ := cmd.Flags().GetString("description")
 
@@ -89,7 +97,7 @@ func runTeamCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create team configuration
-	config := team.TeamConfig{
+	teamConfig := team.TeamConfig{
 		Name:        name,
 		Description: description,
 		Templates:   make(map[string]team.Template),
@@ -109,15 +117,15 @@ func runTeamCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add default template
-	config.Templates["default"] = team.Template{
+	teamConfig.Templates["default"] = team.Template{
 		Name:        "Default",
 		Description: "Default commit message template",
-		Content:     viper.GetString("template"),
+		Content:     appContext.ConfigManager.GetString(config.TemplateKey),
 		Created:     time.Now().Format(time.RFC3339),
 	}
 
 	// Save team configuration
-	if err := appContext.TeamManager.SaveTeam(name, &config); err != nil {
+	if err := appContext.TeamManager.SaveTeam(name, &teamConfig); err != nil {
 		return fmt.Errorf("failed to save team configuration: %w", err)
 	}
 
@@ -126,6 +134,10 @@ func runTeamCreate(cmd *cobra.Command, args []string) error {
 }
 
 func runTeamImport(cmd *cobra.Command, args []string) error {
+	if appContext == nil || appContext.ConfigManager == nil {
+		return fmt.Errorf("configuration manager not initialized")
+	}
+
 	if len(args) < 1 {
 		return fmt.Errorf("filename is required")
 	}
