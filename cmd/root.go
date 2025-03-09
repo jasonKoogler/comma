@@ -86,6 +86,7 @@ func init() {
 	rootCmd.AddCommand(analyzeCmd)
 	rootCmd.AddCommand(enterpriseCmd)
 	rootCmd.AddCommand(setupCmd)
+	rootCmd.AddCommand(updateCmd)
 }
 
 // GetVerbose returns the verbose flag

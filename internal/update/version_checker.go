@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -75,7 +75,7 @@ func (vc *VersionChecker) CheckForUpdates(ctx context.Context) (*UpdateInfo, err
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -145,7 +145,7 @@ func (vc *VersionChecker) cacheUpdateInfo(info *UpdateInfo) error {
 		return fmt.Errorf("failed to marshal update info: %w", err)
 	}
 
-	if err := ioutil.WriteFile(cachePath, data, 0644); err != nil {
+	if err := os.WriteFile(cachePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write cache file: %w", err)
 	}
 
@@ -155,7 +155,7 @@ func (vc *VersionChecker) cacheUpdateInfo(info *UpdateInfo) error {
 // loadCachedInfo loads cached update information
 func (vc *VersionChecker) loadCachedInfo() (*UpdateInfo, error) {
 	cachePath := filepath.Join(vc.configDir, "cache", "update_info.json")
-	data, err := ioutil.ReadFile(cachePath)
+	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		return nil, err
 	}
