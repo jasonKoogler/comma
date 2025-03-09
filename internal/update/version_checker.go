@@ -34,10 +34,22 @@ type VersionChecker struct {
 
 // NewVersionChecker creates a new version checker
 func NewVersionChecker(currentVersion, configDir string) *VersionChecker {
+	// Default repository for updates
+	repoURL := "https://api.github.com/repos/jasonKoogler/comma/releases/latest"
+
+	// Check if a custom repository URL is configured
+	repoConfigPath := filepath.Join(configDir, "update_repo.txt")
+	if data, err := os.ReadFile(repoConfigPath); err == nil && len(data) > 0 {
+		customRepo := strings.TrimSpace(string(data))
+		if customRepo != "" {
+			repoURL = customRepo
+		}
+	}
+
 	return &VersionChecker{
 		currentVersion: strings.TrimPrefix(currentVersion, "v"),
 		configDir:      configDir,
-		updateURL:      "https://api.github.com/repos/jasonKoogler/comma/releases/latest",
+		updateURL:      repoURL,
 		cacheDuration:  24 * time.Hour, // Check once per day
 	}
 }

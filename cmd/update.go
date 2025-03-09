@@ -23,6 +23,8 @@ import (
 var (
 	forceUpdate bool
 	checkOnly   bool
+	setRepoURL  string
+	showRepo    bool
 	updateCmd   = &cobra.Command{
 		Use:   "update",
 		Short: "Check for and install updates",
@@ -36,6 +38,8 @@ Use --check-only to only check for updates without installing.`,
 func init() {
 	updateCmd.Flags().BoolVarP(&forceUpdate, "force", "f", false, "Force update even if already on latest version")
 	updateCmd.Flags().BoolVarP(&checkOnly, "check-only", "c", false, "Only check for updates without installing")
+	updateCmd.Flags().StringVar(&setRepoURL, "set-repo", "", "Set a custom repository URL for updates")
+	updateCmd.Flags().BoolVar(&showRepo, "show-repo", false, "Show the current repository URL for updates")
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
@@ -44,6 +48,43 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	configDir := appContext.ConfigDir
+
+	// Handle showing the current repository URL
+	if showRepo {
+		repoConfigPath := filepath.Join(configDir, "update_repo.txt")
+		data, err := os.ReadFile(repoConfigPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				fmt.Println("Using default repository URL: https://api.github.com/repos/jasonKoogler/comma/releases/latest")
+			} else {
+				fmt.Printf("Error reading repository URL: %v\n", err)
+			}
+		} else {
+			customRepo := strings.TrimSpace(string(data))
+			if customRepo == "" {
+				fmt.Println("Using default repository URL: https://api.github.com/repos/jasonKoogler/comma/releases/latest")
+			} else {
+				fmt.Printf("Current repository URL: %s\n", customRepo)
+			}
+		}
+		return nil
+	}
+
+	// Handle setting a custom repository URL
+	if setRepoURL != "" {
+		repoConfigPath := filepath.Join(configDir, "update_repo.txt")
+		if err := os.MkdirAll(filepath.Dir(repoConfigPath), 0755); err != nil {
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
+
+		if err := os.WriteFile(repoConfigPath, []byte(setRepoURL), 0644); err != nil {
+			return fmt.Errorf("failed to save repository URL: %w", err)
+		}
+
+		fmt.Printf("✓ Update repository URL set to: %s\n", setRepoURL)
+		return nil
+	}
+
 	checker := update.NewVersionChecker(version, configDir)
 
 	fmt.Println("Checking for updates...")
@@ -52,6 +93,19 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	info, err := checker.CheckForUpdates(ctx)
 	if err != nil {
+		// Check if it's a 404 error, which likely means the repository doesn't exist
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "unexpected status code") {
+			fmt.Println("⚠️  Update check failed: Repository or releases not found")
+			fmt.Println("This could be because:")
+			fmt.Println("  1. The repository doesn't exist or is private")
+			fmt.Println("  2. There are no releases published yet")
+			fmt.Println("  3. The update URL is incorrect")
+			fmt.Println("\nTo configure a custom repository for updates, use:")
+			fmt.Println("  comma update --set-repo https://api.github.com/repos/username/repo/releases/latest")
+			fmt.Println("\nTo see the current repository URL, use:")
+			fmt.Println("  comma update --show-repo")
+			return nil
+		}
 		return fmt.Errorf("failed to check for updates: %w", err)
 	}
 
