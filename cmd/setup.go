@@ -19,7 +19,7 @@ var setupCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(setupCmd)
+	// The command is already registered in root.go, so we don't need to register it here
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
